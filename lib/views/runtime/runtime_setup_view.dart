@@ -412,7 +412,7 @@ class _RuntimeSetupViewState extends State<RuntimeSetupView> {
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
-                'Bundle not published yet — coming soon.',
+                s.unavailableReason,
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   fontStyle: FontStyle.italic,
@@ -445,7 +445,7 @@ class _RuntimeSetupViewState extends State<RuntimeSetupView> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    'Coming soon',
+                    'Blocked',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
