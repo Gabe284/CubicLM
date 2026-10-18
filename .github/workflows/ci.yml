@@ -16,9 +16,14 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: subosito/flutter-action@v2
+          cache: gradle
+      - name: Set up Flutter with dependency cache
+        uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
+          cache-key: flutter-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          pub-cache-key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
       - run: flutter pub get
       - run: flutter analyze
       # Sequential: test files share Hive backing paths on disk, so
