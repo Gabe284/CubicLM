@@ -16,6 +16,15 @@ void main() {
       }
     });
 
+    test('unpublished stacks explain their concrete blocker', () {
+      for (final id in [ToolchainId.android, ToolchainId.cpp, ToolchainId.php]) {
+        final stack = ToolchainCatalog.stackOf(id);
+        expect(stack.available, isFalse);
+        expect(stack.unavailableReason.trim(), isNotEmpty);
+        expect(stack.unavailableReason, isNot(contains('coming soon')));
+      }
+    });
+
     test('bundleUrl joins base + file', () {
       final bundle = ToolchainCatalog.stackOf(ToolchainId.core).bundles.first;
       expect(
