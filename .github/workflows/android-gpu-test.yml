@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: android-gpu-test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-android:
     runs-on: ubuntu-latest
@@ -56,7 +60,20 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Check whether this is the latest branch commit
+        id: latest
+        shell: bash
+        run: |
+          latest_sha="$(git ls-remote origin refs/heads/fix/gemini-api-key-auth | awk '{print $1}')"
+          if [ "$GITHUB_SHA" = "$latest_sha" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping release upload from superseded commit $GITHUB_SHA"
+          fi
+
       - name: Publish public test download
+        if: steps.latest.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-gpu-test
