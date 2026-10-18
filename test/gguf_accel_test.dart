@@ -114,9 +114,9 @@ void main() {
   });
 
   group('resolveBatchThreads', () {
-    test('tiers batch threads to free RAM', () {
-      expect(GgufEngine.resolveBatchThreads(1.0), 1);
-      expect(GgufEngine.resolveBatchThreads(1.49), 1);
+    test('uses two batch threads throughout the low-RAM tier', () {
+      expect(GgufEngine.resolveBatchThreads(1.0), 2);
+      expect(GgufEngine.resolveBatchThreads(1.49), 2);
       expect(GgufEngine.resolveBatchThreads(1.5), 2);
       expect(GgufEngine.resolveBatchThreads(2.1), 2);
       expect(GgufEngine.resolveBatchThreads(2.5), -1);
