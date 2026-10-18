@@ -18,6 +18,25 @@ Node v24.21.0 — all green before publish.
 Post-extract the app writes `ubuntu/etc/resolv.conf` (8.8.8.8/1.1.1.1)
 and chmods `bin/proot` — see `RuntimeInstaller._finalizeCore`.
 
+## Debian environment bundle contract
+
+The app has a separate `ToolchainId.debian` entry and stores Debian at
+`<runtime>/debian/`. The bundle must be a complete runtime-relative archive
+containing `debian/usr/bin/bash`, `bin/proot`, `libexec/proot/loader`, and the
+required `lib/` native libraries. The installer validates those paths before
+writing the ready marker. DNS configuration is written to
+`debian/etc/resolv.conf`.
+
+Debian is deliberately disabled in the catalog until this archive is published
+and device-tested. Do not simply rename an Ubuntu archive: glibc libraries,
+symlink layout, package database, and startup dependencies must come from a
+real Debian ARM64 rootfs. The Debian removal path deletes only
+`debian/` and its marker; it must not delete Ubuntu or shared PRoot files.
+
+Node.js, Python, and the other existing overlays still target
+`<runtime>/ubuntu/`. Installing these overlays while Debian is active is blocked
+until per-environment overlay state is implemented.
+
 ## Provenance (all public, downloaded — never copied from reference repos)
 
 | Component | Source | License |
