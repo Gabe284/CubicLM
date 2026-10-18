@@ -4,6 +4,25 @@ on:
   push:
     branches:
       - fix/gemini-api-key-auth
+    paths:
+      - '**.dart'
+      - '**.kt'
+      - '**.java'
+      - '**.cpp'
+      - '**.h'
+      - '**.hpp'
+      - '**.cmake'
+      - '**/CMakeLists.txt'
+      - '**.gradle'
+      - '**.gradle.kts'
+      - '**/gradle-wrapper.properties'
+      - 'gradle/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'assets/**'
+      - 'android/**'
+      - 'local_plugins/**'
+      - '.github/workflows/android-gpu-test.yml'
   workflow_dispatch:
 
 permissions:
@@ -26,16 +45,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y glslc
 
-      - name: Set up Java
+      - name: Set up Java with Gradle cache
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
-      - name: Set up Flutter
+      - name: Set up Flutter with dependency cache
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
+          cache-key: flutter-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          pub-cache-key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
 
       - name: Resolve dependencies
         run: flutter pub get
