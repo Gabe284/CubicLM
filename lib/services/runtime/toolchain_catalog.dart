@@ -11,9 +11,11 @@
 /// present, otherwise from a `<file>.sha256` sidecar next to the bundle.
 library;
 
-/// Toolchain stack ids. `core` (Ubuntu rootfs + node/npm/git) is required
-/// by every other stack.
-enum ToolchainId { core, node, python, android, cpp, php }
+/// Toolchain stack ids. Ubuntu and Debian rootfs installs are independent;
+/// overlays that depend on Ubuntu declare that in [ToolchainStack.needsCore].
+enum ToolchainId { core, debian, node, python, git, codex, android, cpp, php }
+
+enum RuntimeEnvironment { ubuntu, debian }
 
 /// Per-stack install state.
 enum ToolchainState {
@@ -41,7 +43,7 @@ class RuntimeBundle {
   });
 
   bool get hasEmbeddedChecksum =>
-      sha256.trim().length >= 64;
+      RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(sha256.trim());
 }
 
 /// One installable toolchain stack (MH "toolchain" picker row).
@@ -52,6 +54,9 @@ class ToolchainStack {
   final List<RuntimeBundle> bundles;
   final bool needsCore;
   final String downloadNote;
+
+  /// Why installation is disabled until a verified bundle is published.
+  final String? unavailableReason;
 
   /// False while no bundle is published: the UI shows "Coming soon"
   /// instead of a doomed Install button (failed taps used to spam the
@@ -66,6 +71,7 @@ class ToolchainStack {
     this.needsCore = true,
     required this.downloadNote,
     this.available = true,
+    this.unavailableReason,
   });
 }
 
@@ -90,11 +96,31 @@ class ToolchainCatalog {
           ],
           needsCore: false,
           downloadNote: 'One-time download, then everything runs on-device.',
+          available: false,
+          unavailableReason:
+              'The ARM64 rootfs, PRoot binary, loader, and checksum bundle are not present in this checkout or verified release.',
+        ),
+        ToolchainStack(
+          id: ToolchainId.debian,
+          title: 'Debian runtime',
+          subtitle: 'Debian ARM64 userspace in a separate environment',
+          bundles: [
+            RuntimeBundle(
+              fileName: 'cubiclm-debian-arm64.tar.gz',
+              version: 'debian-bookworm-arm64',
+              title: 'Debian rootfs',
+            ),
+          ],
+          needsCore: false,
+          downloadNote: 'Independent Debian root filesystem.',
+          available: false,
+          unavailableReason:
+              'A Debian ARM64 rootfs bundle, SHA-256, and verified PRoot layout are not present in this checkout.',
         ),
         ToolchainStack(
           id: ToolchainId.node,
           title: 'Node.js LTS',
-          subtitle: 'node, npm, npx for web builds + dev servers',
+          subtitle: 'node, npm, npx for web builds + dev servers (Ubuntu only)',
           bundles: [
             RuntimeBundle(
               fileName: 'cubiclm-node-arm64.tar.gz',
@@ -103,11 +129,14 @@ class ToolchainCatalog {
             ),
           ],
           downloadNote: 'Required for CubicWeb builds and preview servers.',
+          available: false,
+          unavailableReason:
+              'The Node.js ARM64 overlay and checksum are not present in a verified release.',
         ),
         ToolchainStack(
           id: ToolchainId.python,
           title: 'Python suite',
-          subtitle: 'Python 3.8, pip, venv',
+          subtitle: 'Python 3.8, pip, venv (Ubuntu only)',
           bundles: [
             RuntimeBundle(
               fileName: 'cubiclm-python-arm64.tar.gz',
@@ -116,6 +145,29 @@ class ToolchainCatalog {
             ),
           ],
           downloadNote: 'For Python scripts, tooling and AI experiments.',
+          available: false,
+          unavailableReason:
+              'The Python ARM64 overlay and checksum are not present in a verified release.',
+        ),
+        ToolchainStack(
+          id: ToolchainId.git,
+          title: 'Git',
+          subtitle: 'Git inside the selected Linux environment',
+          bundles: [],
+          downloadNote: 'Version control for local Linux projects.',
+          available: false,
+          unavailableReason:
+              'Git is not confirmed in the rootfs bundle and no verified ARM64 package overlay is available.',
+        ),
+        ToolchainStack(
+          id: ToolchainId.codex,
+          title: 'OpenAI Codex CLI',
+          subtitle: '@openai/codex inside the selected Linux environment',
+          bundles: [],
+          downloadNote: 'Interactive Codex sessions in your Linux workspace.',
+          available: false,
+          unavailableReason:
+              'Codex CLI needs a verified in-environment Node.js install and persistent interactive process I/O; neither is available yet.',
         ),
         ToolchainStack(
           id: ToolchainId.android,
@@ -132,6 +184,8 @@ class ToolchainCatalog {
               'Large download. Enables the build play button → direct install.',
           // Needs an ARM64 AAPT2 built from AOSP source — honest hold.
           available: false,
+          unavailableReason:
+              'The Android SDK, ARM64 Gradle runtime, and AAPT2 dependency bundle have not been verified.',
         ),
         ToolchainStack(
           id: ToolchainId.cpp,
@@ -146,6 +200,8 @@ class ToolchainCatalog {
           ],
           downloadNote: 'For native compilation inside the runtime.',
           available: false,
+          unavailableReason:
+              'The ARM64 compiler bundle and its runtime dependencies have not been verified.',
         ),
         ToolchainStack(
           id: ToolchainId.php,
@@ -160,11 +216,17 @@ class ToolchainCatalog {
           ],
           downloadNote: 'For PHP projects and Composer packages.',
           available: false,
+          unavailableReason:
+              'The PHP ARM64 bundle and its runtime dependencies have not been verified.',
         ),
       ];
 
   static ToolchainStack stackOf(ToolchainId id) =>
       stacks().firstWhere((s) => s.id == id);
+
+  static bool supportsOverlay(ToolchainId id, RuntimeEnvironment environment) =>
+      (id == ToolchainId.node || id == ToolchainId.python) &&
+      environment == RuntimeEnvironment.ubuntu;
 
   /// Full download URL for [bundle] under [baseUrl].
   static String bundleUrl(String baseUrl, RuntimeBundle bundle) {

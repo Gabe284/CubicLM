@@ -62,10 +62,46 @@ Widget buildDeveloperToolsSection(BuildContext context, bool isDark) {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
             child: Text(
-              'Core Ubuntu ships the shell; stacks add Node, Python, Android, C++ and PHP.',
+              'Ubuntu and Debian have separate root filesystems. Optional toolchains include Node, Python, Git, Codex CLI, Android, C/C++ and PHP.',
               style: GoogleFonts.plusJakartaSans(
                   fontSize: 13,
                   color: Theme.of(context).hintColor),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Linux environment',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                DropdownButton<RuntimeEnvironment>(
+                  value: installer?.selectedEnvironment.value ??
+                      RuntimeEnvironment.ubuntu,
+                  items: RuntimeEnvironment.values
+                      .map((environment) => DropdownMenuItem(
+                            value: environment,
+                            child: Text(environment == RuntimeEnvironment.ubuntu
+                                ? 'Ubuntu'
+                                : 'Debian'),
+                          ))
+                      .toList(),
+                  onChanged: installer == null
+                      ? null
+                      : (environment) {
+                          if (environment != null) {
+                            installer.selectEnvironment(environment);
+                          }
+                        },
+                ),
+              ],
             ),
           ),
           if (installer == null)
@@ -164,6 +200,21 @@ Widget _stackRow(BuildContext context, bool isDark,
           ),
       ]),
     ),
+    if (!s.available)
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            s.unavailableReason ?? 'No verified bundle is available.',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 11,
+              height: 1.35,
+              color: Theme.of(context).hintColor,
+            ),
+          ),
+        ),
+      ),
     if (installing) ...[
       Padding(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cubiclm/services/sandbox/host_backend.dart';
 import 'package:cubiclm/services/sandbox/sandbox_manager.dart';
 import 'package:cubiclm/services/security/sandbox_service.dart';
+import 'package:cubiclm/services/runtime/toolchain_catalog.dart';
 
 void main() {
   group('HostBackend', () {
@@ -33,6 +34,15 @@ void main() {
       expect(result.success, isTrue);
       expect(result.stdout, contains('mgr-hi'));
       expect(manager.activeBackendName.value, 'Host shell');
+    });
+
+    test('does not run on the host when unready Debian is selected', () async {
+      final manager = SandboxManager();
+      manager.selectEnvironment(RuntimeEnvironment.debian);
+      final result = await manager.run('echo must-not-run-on-host');
+      expect(result.success, isFalse);
+      expect(result.stderr, contains('Debian is selected'));
+      expect(manager.activeBackendName.value, 'Debian unavailable');
     });
   });
 

@@ -271,6 +271,30 @@ class _RuntimeSetupViewState extends State<RuntimeSetupView> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (!runtimeSupported) _desktopNote(context, isDark),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                const Expanded(child: Text('Selected Linux environment')),
+                DropdownButton<RuntimeEnvironment>(
+                  value: _installer.selectedEnvironment.value,
+                  items: RuntimeEnvironment.values
+                      .map((environment) => DropdownMenuItem(
+                            value: environment,
+                            child: Text(environment == RuntimeEnvironment.ubuntu
+                                ? 'Ubuntu'
+                                : 'Debian'),
+                          ))
+                      .toList(),
+                  onChanged: (environment) {
+                    if (environment != null) {
+                      _installer.selectEnvironment(environment);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
           for (final s in stacks) _stackCard(context, isDark, s),
         ],
       );
@@ -398,9 +422,9 @@ class _RuntimeSetupViewState extends State<RuntimeSetupView> {
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
-                s.id == ToolchainId.core
-                    ? 'Android-only runtime — install is disabled on this platform.'
-                    : 'Needs the Core runtime (Android-only) — install is disabled on this platform.',
+                s.id == ToolchainId.core || s.id == ToolchainId.debian
+                    ? 'Linux rootfs installs need Android and ARM64.'
+                    : 'This overlay needs its supported Linux environment installed.',
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   fontStyle: FontStyle.italic,
@@ -412,7 +436,7 @@ class _RuntimeSetupViewState extends State<RuntimeSetupView> {
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
-                'Bundle not published yet — coming soon.',
+                s.unavailableReason ?? 'No verified bundle is available.',
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   fontStyle: FontStyle.italic,

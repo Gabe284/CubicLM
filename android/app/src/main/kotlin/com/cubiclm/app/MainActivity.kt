@@ -2961,9 +2961,10 @@ class MainActivity : FlutterFragmentActivity() {
         prootChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "ping" -> {
+                    val environment = call.argument<String>("environment") ?: "ubuntu"
                     thread(name = "proot-ping") {
                         val ok = try {
-                            isProotReady()
+                            isProotReady(environment)
                         } catch (_: Exception) {
                             false
                         }
@@ -2973,12 +2974,13 @@ class MainActivity : FlutterFragmentActivity() {
                 "exec" -> {
                     val command = call.argument<String>("command") ?: ""
                     val cwd = call.argument<String>("cwd") ?: ""
+                    val environment = call.argument<String>("environment") ?: "ubuntu"
                     val timeoutMs =
                         (call.argument<Any>("timeoutMs") as? Number)?.toLong()
                             ?: 30000L
                     thread(name = "proot-exec") {
                         try {
-                            val outcome = runProotExec(command, cwd, timeoutMs)
+                            val outcome = runProotExec(command, cwd, timeoutMs, environment)
                             mainHandler.post { result.success(outcome) }
                         } catch (e: Exception) {
                             mainHandler.post {
@@ -3157,20 +3159,63 @@ class MainActivity : FlutterFragmentActivity() {
         return candidates.firstOrNull { it.isDirectory }
     }
 
-    private fun prootBinary(): File? {
+    private fun prootSupportRoot(environment: String): File? {
+        if (environment != "ubuntu" && environment != "debian") return null
         val root = runtimeRoot() ?: return null
-        val bin = File(root, "bin/proot")
+        return if (environment == "debian") {
+            File(root, "debian/.cubiclm-proot")
+        } else {
+            root
+        }
+    }
+
+    private fun prootBinary(environment: String): File? {
+        val supportRoot = prootSupportRoot(environment) ?: return null
+        val bin = File(supportRoot, "bin/proot")
         return if (bin.isFile && bin.canExecute()) bin else null
     }
 
     /// True when the Core toolchain can execute: rootfs bash + ready
     /// marker + executable proot binary + loader + bundled libs.
-    private fun isProotReady(): Boolean {
+    private fun isProotReady(environment: String): Boolean {
+        if (environment != "ubuntu" && environment != "debian") return false
         val root = runtimeRoot() ?: return false
-        if (!File(root, ".ready-core").isFile) return false
-        if (!File(root, "ubuntu/usr/bin/bash").isFile) return false
-        if (!File(root, "libexec/proot/loader").isFile) return false
-        return prootBinary() != null
+        val rootfs = File(root, environment)
+        val marker = if (environment == "ubuntu") ".ready-core" else ".ready-debian"
+        if (!File(root, marker).isFile) return false
+        if (!File(rootfs, "bin/bash").isFile &&
+            !File(rootfs, "usr/bin/bash").isFile) return false
+        if (!File(rootfs, "etc/resolv.conf").isFile) return false
+        val supportRoot = prootSupportRoot(environment) ?: return false
+        val loader = File(supportRoot, "libexec/proot/loader")
+        if (!loader.isFile || !loader.canExecute()) return false
+        if (!File(supportRoot, "lib/libtalloc.so.2").isFile) return false
+        if (!File(supportRoot, "lib/libandroid-shmem.so").isFile) return false
+        val proot = prootBinary(environment) ?: return false
+        return try {
+            val tmpDir = File(cacheDir, "proot-tmp").apply { mkdirs() }
+            val process = ProcessBuilder(
+                proot.absolutePath,
+                "--link2symlink",
+                "-0",
+                "-r", rootfs.absolutePath,
+                "/bin/bash", "-c", "true",
+            ).apply {
+                this.environment()["HOME"] = "/root"
+                this.environment()["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                this.environment()["PROOT_NO_SECCOMP"] = "1"
+                this.environment()["PROOT_TMP_DIR"] = tmpDir.absolutePath
+                this.environment()["PROOT_LOADER"] = loader.absolutePath
+                this.environment()["PROOT_LOADER_32"] = File(loader.parentFile, "loader32").absolutePath
+                this.environment()["LD_LIBRARY_PATH"] = File(supportRoot, "lib").absolutePath
+                this.environment().remove("LD_PRELOAD")
+            }.start()
+            val completed = process.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)
+            if (!completed) process.destroyForcibly()
+            completed && process.exitValue() == 0
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /// Runs [command] inside the Ubuntu rootfs via proot. The host [cwd]
@@ -3180,15 +3225,24 @@ class MainActivity : FlutterFragmentActivity() {
         command: String,
         cwd: String,
         timeoutMs: Long,
+        environment: String,
     ): Map<String, Any?> {
         if (command.isBlank()) {
             return mapOf("stdout" to "", "stderr" to "Empty command.", "exitCode" to -1)
         }
         val root = runtimeRoot()
             ?: return mapOf("stdout" to "", "stderr" to "Runtime not installed.", "exitCode" to -1)
-        val proot = prootBinary()
+        val proot = prootBinary(environment)
             ?: return mapOf("stdout" to "", "stderr" to "PRoot binary missing.", "exitCode" to -1)
-        val rootfs = File(root, "ubuntu")
+        if (environment != "ubuntu" && environment != "debian") {
+            return mapOf("stdout" to "", "stderr" to "Unknown Linux environment.", "exitCode" to -1)
+        }
+        if (!isProotReady(environment)) {
+            return mapOf("stdout" to "", "stderr" to "Selected Linux environment is not ready.", "exitCode" to -1)
+        }
+        val rootfs = File(root, environment)
+        val supportRoot = prootSupportRoot(environment)
+            ?: return mapOf("stdout" to "", "stderr" to "PRoot support files are missing.", "exitCode" to -1)
 
         val hostDir = when {
             cwd.isBlank() -> filesDir
@@ -3206,8 +3260,8 @@ class MainActivity : FlutterFragmentActivity() {
         // Device-verified on Redmi (PRoot 5.1.107.92): the loader is found
         // via PROOT_LOADER (never rely on Termux-prefix fallbacks), and the
         // bundled libtalloc/libandroid-shmem via LD_LIBRARY_PATH.
-        val libDir = File(root, "lib")
-        val loaderDir = File(root, "libexec/proot")
+        val libDir = File(supportRoot, "lib")
+        val loaderDir = File(supportRoot, "libexec/proot")
 
         val argv = listOf(
             proot.absolutePath,
@@ -3236,8 +3290,8 @@ class MainActivity : FlutterFragmentActivity() {
             val proc = ProcessBuilder(argv)
                 .directory(hostDir)
                 .apply {
-                    environment().putAll(env)
-                    environment().remove("LD_PRELOAD")
+                    this.environment().putAll(env)
+                    this.environment().remove("LD_PRELOAD")
                 }
                 .start()
             proc.outputStream.close()

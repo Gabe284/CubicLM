@@ -1,8 +1,14 @@
-# CubicLM Runtime Bundles — provenance, layout, rebuild recipe
+# CubicLM Runtime Bundles — expected layout and rebuild recipe
 
-First published: `runtime-2026.09` (GitHub Release, ARM64 only).
-Device-verified on Redmi K20 Pro (Android 11): proot exec, guest bash,
-Node v24.21.0 — all green before publish.
+## Verification status
+
+This checkout does not contain the runtime archives or checksum sidecars.
+The referenced GitHub release and its assets were not independently
+verified during this change. Treat the layout and provenance below as the
+intended bundle contract, not proof that a usable bundle is published or
+device-verified. Runtime installation stays disabled until the archive,
+SHA-256, PRoot files, loader, permissions, DNS, and readiness probe have
+all been checked together.
 
 ## What lives where (contract with `RuntimeInstaller` + `MainActivity`)
 
@@ -11,6 +17,11 @@ Node v24.21.0 — all green before publish.
 - `bin/proot` (0755) — PRoot user-mode-linux runner (Android/bionic ARM64)
 - `libexec/proot/loader` (0755) — proot loader, found via `PROOT_LOADER`
 - `lib/libtalloc.so.2`, `lib/libandroid-shmem.so` — found via `LD_LIBRARY_PATH`
+
+The planned `cubiclm-debian-arm64.tar.gz` must also extract to
+`<runtime>/`, with `debian/**` as the guest root and PRoot support files
+under `debian/.cubiclm-proot/{bin,libexec/proot,lib}/`. Keeping these files
+inside Debian lets either environment be removed or updated independently.
 
 `cubiclm-node-arm64.tar.gz` extracts to `<runtime>/ubuntu/`:
 - `usr/local/{bin,lib,include,share}/**` — Node.js (on PATH already)

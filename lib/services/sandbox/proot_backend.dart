@@ -1,71 +1,66 @@
-/// CubicLM Sandbox — PRoot Ubuntu backend (native work pending).
+/// CubicLM Sandbox — Android PRoot backend for Ubuntu and Debian.
 ///
-/// NATIVE CONTRACT (for the future Android implementation — mirrors
-/// Mobile-Harness pocket_spawn.c):
+/// Native Android bridge contract (mirrors Mobile-Harness pocket_spawn.c):
 /// - MethodChannel `com.cubiclm.app/proot` with methods:
-///   - `ping` → bool (true when the Ubuntu rootfs is installed + runnable)
-///   - `exec` {command: String, cwd: String, timeoutMs: int} →
+///   - `ping` {environment} → bool (true when that rootfs passes readiness)
+///   - `exec` {environment, command, cwd, timeoutMs} →
 ///     {stdout: String, stderr: String, exitCode: int}
-/// - Native side: JNI → fork/exec proot with the rootfs at
-///   `<filesDir>/runtime/ubuntu`, guest cwd `/workspace/<slug>`,
+/// - Native side: fork/exec proot with the selected rootfs at
+///   `<filesDir>/runtime/{ubuntu,debian}`, guest cwd `/workspace`,
 ///   bindings for /dev, /proc, /sys, and the project workspace.
-/// - Bundles (core Ubuntu 20.04 ARM64 + node/npm/git; opt-in python,
-///   android-sdk, cpp) download on demand like the reference app.
+/// - Bundle availability is gated by the verified catalog; no placeholder
+///   stack can make the bridge report a ready environment.
 ///
-/// Until that native code ships, [isAvailable] returns false and the
-/// [SandboxManager] transparently falls back to [HostBackend]. Callers
-/// MUST go through the manager so the switch is automatic.
+/// All command callers should use [SandboxManager] so the selected
+/// environment and its readiness checks stay consistent.
 library;
 
 import 'package:flutter/services.dart';
 
 import 'sandbox_backend.dart';
 
-/// PRoot Ubuntu backend. Unavailable until the native runtime ships.
+/// PRoot backend. Available independently for each installed environment.
 class ProotBackend implements SandboxBackend {
   static const MethodChannel _channel =
       MethodChannel('com.cubiclm.app/proot');
 
-  bool? _cachedAvailable;
+  String nameFor(String runtimeEnvironment) => runtimeEnvironment == 'debian'
+      ? 'PRoot Debian'
+      : 'PRoot Ubuntu 20.04';
 
   @override
-  String get name => 'PRoot Ubuntu 20.04';
+  String get name => nameFor('ubuntu');
 
   @override
-  Future<bool> isAvailable() async {
-    if (_cachedAvailable != null) return _cachedAvailable!;
+  Future<bool> isAvailable({String runtimeEnvironment = 'ubuntu'}) async {
     try {
       final ok = await _channel
-          .invokeMethod<bool>('ping')
+          .invokeMethod<bool>('ping', {'environment': runtimeEnvironment})
           .timeout(const Duration(seconds: 3));
-      _cachedAvailable = ok ?? false;
+      return ok ?? false;
     } catch (_) {
-      _cachedAvailable = false;
+      return false;
     }
-    return _cachedAvailable!;
-  }
-
-  /// Forget the cached probe (e.g. after the user installs the runtime).
-  void resetCache() {
-    _cachedAvailable = null;
   }
 
   @override
   Future<SandboxResult> run(
     String command, {
+    String runtimeEnvironment = 'ubuntu',
     String? workDir,
     Duration timeout = const Duration(seconds: 30),
     Map<String, String>? environment,
   }) async {
-    if (!await isAvailable()) {
+    if (!await isAvailable(runtimeEnvironment: runtimeEnvironment)) {
       return const SandboxResult(
         stderr:
-            'PRoot runtime not installed yet — enable it in setup to run commands in isolated Ubuntu.',
+            'Selected PRoot environment is not installed or ready.',
         exitCode: -1,
       );
     }
     try {
       final raw = await _channel.invokeMethod<Map>('exec', {
+        'environment': runtimeEnvironment,
         'command': command,
         'cwd': workDir ?? '',
         'timeoutMs': timeout.inMilliseconds,

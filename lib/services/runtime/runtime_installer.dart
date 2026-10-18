@@ -14,9 +14,9 @@
 /// - Keep-alive: `com.cubiclm.app/runtime` channel holds a foreground
 ///   service + wakelock during long installs (Android; no-op elsewhere).
 ///
-/// When the core marker + `usr/bin/bash` exist, the native `proot`
-/// channel reports ready and [SandboxManager] auto-switches the terminal
-/// and agent shell into isolated Ubuntu — no caller changes.
+/// A rootfs is ready only after its marker, shell, DNS, PRoot executable,
+/// loader, libraries, and native execution probe all pass. The selected
+/// environment is shared by terminal and agent shell execution.
 library;
 
 import 'dart:async';
@@ -73,14 +73,17 @@ class StackStatus {
 /// Toolchain bundle installer (registered in main deferred init).
 class RuntimeInstaller extends GetxService {
   static const _channel = MethodChannel('com.cubiclm.app/runtime');
+  static const _prootChannel = MethodChannel('com.cubiclm.app/proot');
   static const _kInstalledKey = 'runtime_installed_stacks_v1';
   static const _kBaseUrlKey = 'runtime_base_url';
+  static const _kSelectedEnvironmentKey = 'runtime_selected_environment';
 
   /// Observable status per stack id.
   final statuses = <ToolchainId, StackStatus>{}.obs;
 
   /// Overall busy flag (one install at a time, like the CLI queue).
   final busy = false.obs;
+  final selectedEnvironment = RuntimeEnvironment.ubuntu.obs;
 
   String _root = '';
   bool _cancelRequested = false;
@@ -90,6 +93,12 @@ class RuntimeInstaller extends GetxService {
       statuses[s.id] = const StackStatus();
     }
     await refresh();
+    final savedEnvironment =
+        _hive?.getSetting<String>(_kSelectedEnvironmentKey);
+    selectedEnvironment.value = savedEnvironment == 'debian'
+        ? RuntimeEnvironment.debian
+        : RuntimeEnvironment.ubuntu;
+    _syncSelectedEnvironment();
     await _reportRuntimeRoot();
     return this;
   }
@@ -109,8 +118,25 @@ class RuntimeInstaller extends GetxService {
   Future<Directory> get _cacheDir async =>
       Directory('${await _runtimeRoot}/cache')..createSync(recursive: true);
 
-  Future<Directory> get _rootfsDir async =>
-      Directory('${await _runtimeRoot}/ubuntu');
+  Future<Directory> _rootfsDir(String name) async =>
+      Directory('${await _runtimeRoot}/$name');
+
+  Future<void> selectEnvironment(RuntimeEnvironment environment) async {
+    selectedEnvironment.value = environment;
+    try {
+      await _hive?.setSetting(_kSelectedEnvironmentKey, environment.name);
+    } catch (_) {}
+    _syncSelectedEnvironment();
+    await _refreshSandbox();
+  }
+
+  void _syncSelectedEnvironment() {
+    try {
+      if (Get.isRegistered<SandboxManager>()) {
+        Get.find<SandboxManager>().selectEnvironment(selectedEnvironment.value);
+      }
+    } catch (_) {}
+  }
 
   String _markerFor(ToolchainId id) => '$_root/.ready-${id.name}';
 
@@ -152,7 +178,24 @@ class RuntimeInstaller extends GetxService {
     try {
       if (!File(_markerFor(id)).existsSync()) return false;
       if (id == ToolchainId.core) {
-        return File('$_root/ubuntu/usr/bin/bash').existsSync();
+        final filesPresent = File('$_root/ubuntu/usr/bin/bash').existsSync() &&
+            File('$_root/bin/proot').existsSync() &&
+            File('$_root/libexec/proot/loader').existsSync() &&
+            File('$_root/lib/libtalloc.so.2').existsSync() &&
+            File('$_root/lib/libandroid-shmem.so').existsSync() &&
+            File('$_root/ubuntu/etc/resolv.conf').existsSync();
+        return filesPresent && await _probeNativeEnvironment('ubuntu');
+      }
+      if (id == ToolchainId.debian) {
+        final support = '$_root/debian/.cubiclm-proot';
+        final filesPresent = (File('$_root/debian/bin/bash').existsSync() ||
+                File('$_root/debian/usr/bin/bash').existsSync()) &&
+            File('$_root/debian/etc/resolv.conf').existsSync() &&
+            File('$support/bin/proot').existsSync() &&
+            File('$support/libexec/proot/loader').existsSync() &&
+            File('$support/lib/libtalloc.so.2').existsSync() &&
+            File('$support/lib/libandroid-shmem.so').existsSync();
+        return filesPresent && await _probeNativeEnvironment('debian');
       }
       return true;
     } catch (_) {
@@ -178,14 +221,22 @@ class RuntimeInstaller extends GetxService {
     if (kIsWeb) {
       return ['Toolchain install needs Android or desktop.'];
     }
-    if (id == ToolchainId.core && !Platform.isAndroid) {
-      warnings.add('Core Ubuntu runtime needs Android (PRoot).');
+    if ((id == ToolchainId.core || id == ToolchainId.debian) &&
+        !Platform.isAndroid) {
+      warnings.add('Linux rootfs environments need Android (PRoot).');
     }
-    if (id == ToolchainId.core && Platform.isAndroid) {
+    if ((id == ToolchainId.core || id == ToolchainId.debian) &&
+        Platform.isAndroid) {
       final abi = await _androidAbi();
       if (abi.isNotEmpty && !abi.contains('arm64')) {
-        warnings.add('Core runtime needs an ARM64 device (found $abi).');
+        warnings.add('Linux rootfs environments need ARM64 (found $abi).');
       }
+    }
+    if ((id == ToolchainId.node || id == ToolchainId.python) &&
+        !ToolchainCatalog.supportsOverlay(id, selectedEnvironment.value)) {
+      warnings.add(
+        '${ToolchainCatalog.stackOf(id).title} overlays are supported in Ubuntu only.',
+      );
     }
     final stack = ToolchainCatalog.stackOf(id);
     if (stack.needsCore && !await isCoreReady) {
@@ -231,7 +282,7 @@ class RuntimeInstaller extends GetxService {
     if (busy.value) return 'Another install is already running.';
     final stack = ToolchainCatalog.stackOf(id);
     if (!stack.available) {
-      return 'This stack is not published yet — coming soon.';
+      return stack.unavailableReason ?? 'No verified bundle is available.';
     }
     final blocks = await preflight(id);
     if (blocks.isNotEmpty) return blocks.join('\n');
@@ -241,6 +292,8 @@ class RuntimeInstaller extends GetxService {
     _rtLog('runtime install ${id.name} started');
     await _setKeepAlive(true);
     try {
+      final oldMarker = File(_markerFor(id));
+      if (await oldMarker.exists()) await oldMarker.delete();
       for (final bundle in stack.bundles) {
         final err = await _installBundle(id, bundle);
         if (err != null) {
@@ -257,11 +310,34 @@ class RuntimeInstaller extends GetxService {
         }
       }
       await _writeMarker(id, stack.bundles.map((b) => b.version).join(','));
+      if (id == ToolchainId.core || id == ToolchainId.debian) {
+        final environment =
+            id == ToolchainId.core ? 'ubuntu' : 'debian';
+        final runnable = await _probeNativeEnvironment(environment);
+        if (!runnable) {
+          try {
+            await File(_markerFor(id)).delete();
+          } catch (_) {}
+          const error =
+              'Rootfs files passed layout checks, but PRoot could not execute the readiness probe.';
+          _set(id, state: ToolchainState.failed, error: error);
+          return error;
+        }
+      }
       await _persistInstalled();
       _set(id, state: ToolchainState.ready, fraction: 1, line: 'Ready.');
       AppLogService.trailAction('runtime install ${id.name} ready');
       await _refreshSandbox();
       return null;
+    } catch (e) {
+      final marker = File(_markerFor(id));
+      try {
+        if (await marker.exists()) await marker.delete();
+      } catch (_) {}
+      final error = 'Runtime installation failed: $e';
+      _set(id, state: ToolchainState.failed, error: error);
+      _rtLog('runtime install ${id.name} failed', warn: true, details: e);
+      return error;
     } finally {
       busy.value = false;
       await _setKeepAlive(false);
@@ -273,16 +349,29 @@ class RuntimeInstaller extends GetxService {
     _cancelRequested = true;
   }
 
-  /// Remove [id]. Core removal wipes the whole runtime tree (overlays live
-  /// inside it); other stacks drop their marker for a clean reinstall.
-  /// Never throws.
+  /// Remove one stack. Ubuntu and Debian rootfs directories are deleted
+  /// independently; shared legacy PRoot files are removed only when Debian
+  /// is not ready. Never throws.
   Future<void> remove(ToolchainId id) async {
     if (busy.value) return;
     try {
       await _runtimeRoot;
-      if (id == ToolchainId.core) {
-        final dir = Directory(_root);
-        if (await dir.exists()) await dir.delete(recursive: true);
+      if (id == ToolchainId.core || id == ToolchainId.debian) {
+        final environment =
+            id == ToolchainId.core ? 'ubuntu' : 'debian';
+        final rootfs = await _rootfsDir(environment);
+        if (await rootfs.exists()) await rootfs.delete(recursive: true);
+        final marker = File(_markerFor(id));
+        if (await marker.exists()) await marker.delete();
+        if (id == ToolchainId.core) {
+          for (final stack in ToolchainCatalog.stacks().where((s) => s.needsCore)) {
+            final overlayMarker = File(_markerFor(stack.id));
+            if (await overlayMarker.exists()) await overlayMarker.delete();
+          }
+          if (!await _isStackReady(ToolchainId.debian)) {
+            await _removeSharedProot();
+          }
+        }
       } else {
         final m = File(_markerFor(id));
         if (await m.exists()) await m.delete();
@@ -302,12 +391,32 @@ class RuntimeInstaller extends GetxService {
     } catch (_) {}
   }
 
-  /// Extract destination per stack. Core lays down the whole tree —
-  /// `ubuntu/` (rootfs) + `bin/proot` (Android PRoot binary, which must
-  /// live OUTSIDE the rootfs and can never arrive via a rootfs-relative
-  /// extract). Overlays merge into the rootfs. Pure for unit tests.
+  Future<bool> _probeNativeEnvironment(String environment) async {
+    try {
+      final result = await _prootChannel.invokeMethod<bool>(
+        'ping',
+        {'environment': environment},
+      ).timeout(const Duration(seconds: 15));
+      return result == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _removeSharedProot() async {
+    for (final shared in [
+      Directory('$_root/bin'),
+      Directory('$_root/lib'),
+      Directory('$_root/libexec'),
+    ]) {
+      if (await shared.exists()) await shared.delete(recursive: true);
+    }
+  }
+
+  /// Rootfs bundles lay down their environment plus its PRoot support
+  /// files. Overlays merge into Ubuntu. Pure for unit tests.
   static String extractSubdirFor(ToolchainId id) =>
-      id == ToolchainId.core ? '' : 'ubuntu';
+      id == ToolchainId.core || id == ToolchainId.debian ? '' : 'ubuntu';
 
   /// Guest DNS: ubuntu-base ships no resolv.conf, so without this every
   /// network call inside proot (npm, apt, git) fails.
@@ -336,14 +445,17 @@ class RuntimeInstaller extends GetxService {
         line: 'Extracting ${bundle.title}…');
     final root = await _runtimeRoot;
     final sub = extractSubdirFor(id);
-    final target = sub.isEmpty ? Directory(root) : await _rootfsDir;
+    final target = sub.isEmpty ? Directory(root) : await _rootfsDir(sub);
     await target.create(recursive: true);
     final exErr = await _extractTarGz(dest, target);
     if (exErr != null) return exErr;
-    // 4. Core post-steps: guest DNS + proot exec bit (best effort —
-    // tar usually preserves modes, toybox chmod is the backstop).
-    if (id == ToolchainId.core) {
-      final finErr = await _finalizeCore(root);
+    // 4. Core post-steps: guest DNS + PRoot mode, then check the complete
+    // runtime layout before the caller is allowed to write its marker.
+    if (id == ToolchainId.core || id == ToolchainId.debian) {
+      final finErr = await _finalizeEnvironment(
+        root,
+        id == ToolchainId.core ? 'ubuntu' : 'debian',
+      );
       if (finErr != null) return finErr;
     }
     return null;
@@ -351,9 +463,13 @@ class RuntimeInstaller extends GetxService {
 
   /// Write resolv.conf + ensure `bin/proot` is executable. Returns an
   /// error string, or null on success. Never throws.
-  Future<String?> _finalizeCore(String root) async {
+  Future<String?> _finalizeEnvironment(String root, String environment) async {
+    final rootfs = Directory('$root/$environment');
+    final supportRoot = environment == 'debian'
+        ? Directory('${rootfs.path}/.cubiclm-proot')
+        : Directory(root);
     try {
-      final etc = Directory('$root/ubuntu/etc');
+      final etc = Directory('${rootfs.path}/etc');
       await etc.create(recursive: true);
       await File('${etc.path}/resolv.conf')
           .writeAsString(_resolvConf, flush: true);
@@ -361,15 +477,56 @@ class RuntimeInstaller extends GetxService {
       return 'Could not write guest DNS config: $e';
     }
     try {
-      final proot = File('$root/bin/proot');
-      if (await proot.exists()) {
-        await Process.run(
-          'chmod',
-          ['0755', proot.path],
-          runInShell: false,
-        ).timeout(const Duration(seconds: 10));
+      final proot = File('${supportRoot.path}/bin/proot');
+      if (!await proot.exists()) {
+        return '$environment bundle is missing its PRoot binary.';
       }
-    } catch (_) {}
+      final chmod = await Process.run(
+        'chmod',
+        ['0755', proot.path],
+        runInShell: false,
+      ).timeout(const Duration(seconds: 10));
+      if (chmod.exitCode != 0) {
+        return 'Could not make the bundled PRoot binary executable.';
+      }
+      if (((await proot.stat()).mode & 0x40) == 0) {
+        return 'The bundled PRoot binary is not executable after chmod.';
+      }
+      final loader = File('${supportRoot.path}/libexec/proot/loader');
+      if (!await loader.exists()) {
+        return '$environment bundle is missing the PRoot loader.';
+      }
+      final loaderChmod = await Process.run(
+        'chmod',
+        ['0755', loader.path],
+        runInShell: false,
+      ).timeout(const Duration(seconds: 10));
+      if (loaderChmod.exitCode != 0) {
+        return 'Could not make the PRoot loader executable.';
+      }
+      if (((await loader.stat()).mode & 0x40) == 0) {
+        return 'The PRoot loader is not executable after chmod.';
+      }
+      for (final relative in [
+        'libexec/proot/loader',
+        'lib/libtalloc.so.2',
+        'lib/libandroid-shmem.so',
+      ]) {
+        if (!await File('${supportRoot.path}/$relative').exists()) {
+          return '$environment bundle is incomplete: missing $relative.';
+        }
+      }
+      if (!await File('$root/$environment/bin/bash').exists() &&
+          !await File('$root/$environment/usr/bin/bash').exists()) {
+        return 'Rootfs is incomplete: missing $environment bash.';
+      }
+      final dns = await File('${etc.path}/resolv.conf').readAsString();
+      if (!dns.contains('nameserver ')) {
+        return 'Guest DNS configuration is incomplete.';
+      }
+    } catch (e) {
+      return 'Could not finalize $environment: $e';
+    }
     return null;
   }
 
@@ -499,8 +656,7 @@ class RuntimeInstaller extends GetxService {
       );
     }
     if (expected.isEmpty) {
-      _set(id, line: 'No checksum published — skipping verify.');
-      return null;
+      return 'No SHA-256 checksum is available for ${bundle.fileName}; refusing to install an unverified bundle.';
     }
     try {
       final digest = await _sha256File(dest, (done, total) {
@@ -621,12 +777,14 @@ class RuntimeInstaller extends GetxService {
   // ── Markers + persistence ──────────────────────────────────────────
 
   Future<void> _writeMarker(ToolchainId id, String version) async {
-    try {
-      await _runtimeRoot;
-      await File(_markerFor(id)).writeAsString(
-        'version=$version\ninstalled=${DateTime.now().millisecondsSinceEpoch}\n',
-      );
-    } catch (_) {}
+    await _runtimeRoot;
+    final marker = File(_markerFor(id));
+    final temporary = File('${marker.path}.tmp');
+    await temporary.writeAsString(
+      'version=$version\ninstalled=${DateTime.now().millisecondsSinceEpoch}\n',
+      flush: true,
+    );
+    await temporary.rename(marker.path);
   }
 
   Future<void> _persistInstalled() async {
