@@ -309,7 +309,7 @@ class _RuntimeSetupViewState extends State<RuntimeSetupView> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Ubuntu and Debian use separate root filesystems. Install both to switch between them; installing or removing Debian must not remove Ubuntu.',
+            'Ubuntu and Debian use separate root filesystems. Install both to switch between them; installing or removing Debian must not remove Ubuntu. Node.js, Python, and other current overlays still target Ubuntu.',
             style: GoogleFonts.plusJakartaSans(
               fontSize: 11,
               height: 1.4,
