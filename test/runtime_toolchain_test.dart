@@ -26,7 +26,7 @@ void main() {
       expect(debian.needsCore, isFalse);
       expect(debian.available, isFalse);
       expect(debian.bundles.single.fileName, 'cubiclm-debian-arm64.tar.gz');
-      expect(debian.unavailableReason, contains('shared PRoot runtime'));
+      expect(debian.unavailableReason, contains('PRoot binary'));
     });
 
     test('unpublished stacks explain their concrete blocker', () {
