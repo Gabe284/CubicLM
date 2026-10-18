@@ -341,10 +341,21 @@ class RuntimeInstaller extends GetxService {
     try {
       await _runtimeRoot;
       if (id == ToolchainId.core) {
-        // Legacy Ubuntu core bundles contain shared PRoot binaries and
-        // overlays; preserve the existing full-core removal semantics.
-        final dir = Directory(_root);
-        if (await dir.exists()) await dir.delete(recursive: true);
+        // Remove Ubuntu and its overlays only. Debian, shared PRoot runtime,
+        // downloaded bundle cache, and app data must survive this operation.
+        final ubuntu = Directory('$_root/ubuntu');
+        if (await ubuntu.exists()) await ubuntu.delete(recursive: true);
+        for (final stack in [
+          ToolchainId.core,
+          ToolchainId.node,
+          ToolchainId.python,
+          ToolchainId.android,
+          ToolchainId.cpp,
+          ToolchainId.php,
+        ]) {
+          final marker = File(_markerFor(stack));
+          if (await marker.exists()) await marker.delete();
+        }
       } else if (id == ToolchainId.debian) {
         // Debian is an independent rootfs. Do not delete the runtime root,
         // Ubuntu rootfs, shared PRoot files, caches, or Ubuntu overlays.
@@ -358,6 +369,19 @@ class RuntimeInstaller extends GetxService {
       }
       await _persistInstalled();
       await refresh();
+      if (!await _environmentReady(activeEnvironment.value)) {
+        if (await _environmentReady('ubuntu')) {
+          activeEnvironment.value = 'ubuntu';
+        } else if (await _environmentReady('debian')) {
+          activeEnvironment.value = 'debian';
+        } else {
+          activeEnvironment.value = 'ubuntu';
+        }
+        try {
+          await _hive?.setSetting(_kEnvironmentKey, activeEnvironment.value);
+        } catch (_) {}
+      }
+      await _reportRuntimeRoot();
       await _refreshSandbox();
       AppLogService.trailAction('runtime ${id.name} removed');
     } catch (_) {}
