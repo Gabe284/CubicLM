@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -279,7 +280,7 @@ abstract class OpenAICompatibleProvider extends CloudProvider {
             // executeApproved: approval already happened above; emits a
             // trace record for the agent loop.
             final toolResult = await toolReg.executeApproved(name, args, ToolContext(
-              workspacePath: toolReg.cloudWorkspacePath,
+              workspacePath: (Zone.current[#cubiclmWorkspacePath] as String?) ?? '',
               approve: (n, a) => _approveToolCall(n, a),
             ));
             result = {
