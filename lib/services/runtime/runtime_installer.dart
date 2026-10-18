@@ -14,9 +14,9 @@
 /// - Keep-alive: `com.cubiclm.app/runtime` channel holds a foreground
 ///   service + wakelock during long installs (Android; no-op elsewhere).
 ///
-/// When the core marker + `usr/bin/bash` exist, the native `proot`
-/// channel reports ready and [SandboxManager] auto-switches the terminal
-/// and agent shell into isolated Ubuntu — no caller changes.
+/// When the selected environment marker + `usr/bin/bash` exist, the native
+/// PRoot channel reports ready and [SandboxManager] switches terminal and
+/// agent execution into that isolated Linux rootfs.
 library;
 
 import 'dart:async';
@@ -333,9 +333,9 @@ class RuntimeInstaller extends GetxService {
     _cancelRequested = true;
   }
 
-  /// Remove [id]. Core removal wipes the whole runtime tree (overlays live
-  /// inside it); other stacks drop their marker for a clean reinstall.
-  /// Never throws.
+  /// Remove [id]. Ubuntu and Debian rootfs removal is isolated; removing
+  /// Ubuntu also clears Ubuntu overlay markers but preserves Debian and the
+  /// shared PRoot runtime. Never throws.
   Future<void> remove(ToolchainId id) async {
     if (busy.value) return;
     try {
@@ -461,13 +461,17 @@ class RuntimeInstaller extends GetxService {
     try {
       final etc = Directory('$root/$environment/etc');
       await etc.create(recursive: true);
-      await File('${etc.path}/resolv.conf').writeAsString(_resolvConf, flush: true);
+      await File('${etc.path}/resolv.conf')
+          .writeAsString(_resolvConf, flush: true);
     } catch (e) {
       return 'Could not write $environment guest DNS config: $e';
     }
     try {
-      final chmod = await Process.run('chmod', ['0755', proot.path], runInShell: false)
-          .timeout(const Duration(seconds: 10));
+      final chmod = await Process.run(
+        'chmod',
+        ['0755', proot.path],
+        runInShell: false,
+      ).timeout(const Duration(seconds: 10));
       if (chmod.exitCode != 0 && !proot.canExecute()) {
         return 'Could not make the PRoot binary executable: ${chmod.stderr}';
       }
