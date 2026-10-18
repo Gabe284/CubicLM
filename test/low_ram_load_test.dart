@@ -22,9 +22,10 @@ void main() {
   });
 
   group('clampThreadsForRam', () {
-    test('single thread below 1.5GB free', () {
-      expect(GgufEngine.clampThreadsForRam(threads: 4, availGb: 1.1), 1);
-      expect(GgufEngine.clampThreadsForRam(threads: 1, availGb: 1.1), 1);
+    test('uses two threads below 1.5GB free', () {
+      expect(GgufEngine.clampThreadsForRam(threads: 4, availGb: 1.1), 2);
+      expect(GgufEngine.clampThreadsForRam(threads: 1, availGb: 1.1), 2);
+      expect(GgufEngine.clampThreadsForRam(threads: 4, availGb: 0.6), 2);
     });
 
     test('caps at 2 threads below 2.5GB free', () {
@@ -33,7 +34,7 @@ void main() {
       expect(
           GgufEngine.clampThreadsForRam(threads: 6, availGb: 1.5), 2);
       expect(
-          GgufEngine.clampThreadsForRam(threads: 1, availGb: 1.5), 1);
+          GgufEngine.clampThreadsForRam(threads: 1, availGb: 1.5), 2);
       expect(
           GgufEngine.clampThreadsForRam(threads: 4, availGb: 2.1), 2);
     });
@@ -49,6 +50,19 @@ void main() {
       expect(
           GgufEngine.clampThreadsForRam(threads: 6, availGb: 4.7), 6);
       expect(GgufEngine.clampThreadsForRam(threads: 4, availGb: 0), 4);
+    });
+  });
+
+  group('resolveBatchThreads', () {
+    test('uses two workers below 2.5GB free', () {
+      expect(GgufEngine.resolveBatchThreads(0.6), 2);
+      expect(GgufEngine.resolveBatchThreads(1.1), 2);
+      expect(GgufEngine.resolveBatchThreads(2.1), 2);
+    });
+
+    test('uses native default when RAM is unknown or plentiful', () {
+      expect(GgufEngine.resolveBatchThreads(0), -1);
+      expect(GgufEngine.resolveBatchThreads(3.0), -1);
     });
   });
 

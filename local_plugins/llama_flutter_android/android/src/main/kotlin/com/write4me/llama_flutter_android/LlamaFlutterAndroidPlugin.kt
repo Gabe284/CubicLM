@@ -566,8 +566,9 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
         val safeRam = (freeRamBytes * 0.7).toLong()
         return when {
             !vulkanSupported -> 0
-            gpuName.contains("Mali", ignoreCase = true) -> 0
             safeRam < GB -> 0                                          // < 1 GB — truly too low
+            gpuName.contains("Mali", ignoreCase = true) ->
+                if (safeRam < 2 * GB) 8 else 16                       // cautious shared-memory offload
             safeRam < 2 * GB && deviceLocalMemoryBytes < 3 * GB -> 0  // low RAM + low VRAM
             safeRam < 3 * GB || deviceLocalMemoryBytes < 2 * GB -> 16 // partial offload
             else -> 99                                                  // full offload

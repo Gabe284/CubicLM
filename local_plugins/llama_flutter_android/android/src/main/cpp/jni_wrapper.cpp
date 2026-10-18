@@ -16,6 +16,7 @@
 #include <cstdarg>
 #include <android/log.h>
 #include "llama.cpp/include/llama.h"
+#include "ggml-vulkan.h"
 #define LOG_TAG "LlamaJNI"
 
 // ── Diagnostics ring buffer (for tombstones, no adb) ───────────────
@@ -480,15 +481,45 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_write4me_llama_1flutter_1android_LlamaFlutterAndroidPlugin_nativeDetectGpu(
         JNIEnv* env, jobject /* this */, jlongArray outStats) {
 
-    // Zero out output array as safe default (-1 = unknown)
+    // Keep unknown statistics as -1 unless the Vulkan backend reports them.
     jlong defaults[2] = {-1L, -1L};
     env->SetLongArrayRegion(outStats, 0, 2, defaults);
 
-    // Vulkan GPU detection is disabled on Android to avoid driver crashes
-    // on older devices (e.g., Adreno 630). llama.cpp inference already runs
-    // on CPU (GGML_VULKAN=OFF), so GPU layers are not used anyway.
-    LOGI("nativeDetectGpu: skipped — CPU-only mode on Android");
-    return nullptr;
+    // Register the compiled Vulkan backend once. A missing device or driver
+    // initialization failure falls back to CPU inference at the Dart layer.
+    if (ggml_backend_reg_by_name(GGML_VK_NAME) == nullptr) {
+        ggml_backend_reg_t vk_reg = ggml_backend_vk_reg();
+        if (vk_reg == nullptr) {
+            LOGI("nativeDetectGpu: Vulkan initialization failed; CPU fallback");
+            return nullptr;
+        }
+        ggml_backend_register(vk_reg);
+    }
+
+    const int device_count = ggml_backend_vk_get_device_count();
+    if (device_count <= 0) {
+        LOGI("nativeDetectGpu: no Vulkan devices; CPU fallback");
+        return nullptr;
+    }
+
+    uint32_t api_version = 0;
+    int device_type = 0;
+    if (!ggml_backend_vk_get_device_info(0, &api_version, &device_type)) {
+        LOGI("nativeDetectGpu: no Vulkan 1.2+ hardware GPU; CPU fallback");
+        return nullptr;
+    }
+
+    char device_name[256] = {0};
+    ggml_backend_vk_get_device_description(0, device_name, sizeof(device_name));
+    size_t free_memory = 0;
+    size_t total_memory = 0;
+    ggml_backend_vk_get_device_memory(0, &free_memory, &total_memory);
+
+    jlong stats[2] = {static_cast<jlong>(api_version), static_cast<jlong>(total_memory)};
+    env->SetLongArrayRegion(outStats, 0, 2, stats);
+    LOGI("nativeDetectGpu: Vulkan device=%s, apiVersion=%u, type=%d, free=%zu, total=%zu",
+         device_name, api_version, device_type, free_memory, total_memory);
+    return env->NewStringUTF(device_name);
 }
 
 extern "C" JNIEXPORT void JNICALL

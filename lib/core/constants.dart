@@ -410,7 +410,7 @@ When the user asks for a complete file or program (for example a game in a singl
       'filename': 'dolphin-3.0-qwen2.5-1.5b-q4_k_m.gguf',
       'url':
           'https://huggingface.co/bartowski/Dolphin3.0-Qwen2.5-1.5B-GGUF/resolve/main/Dolphin3.0-Qwen2.5-1.5B-Q4_K_M.gguf',
-      'size': '1.1 GB',
+      'size': '0.99 GB',
       'description': 'Uncensored Dolphin 3.0 — Fast and unrestricted',
       'template': 'chatml',
     },

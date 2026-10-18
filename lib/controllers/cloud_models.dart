@@ -11,13 +11,6 @@ extension CloudModelControllerModels on CloudModelController {
   Future<String?> verifyApiKey(String provider, String candidate) async {
     final key = candidate.trim();
     if (key.isEmpty) return 'Paste a key first.';
-    // Wrong-key-type fast path: Google AI Studio keys always start
-    // with "AIza" — anything else (e.g. "AQ.…") is rejected by Google
-    // before any quota/model check, so say so without a network call.
-    if (provider == 'google' && !key.startsWith('AIza')) {
-      return 'Not a Gemini API key — AI Studio keys start with "AIza". '
-          'Create one free at aistudio.google.com/apikey.';
-    }
     try {
       final cloudProvider = CloudProviderRegistry.getById(provider);
       final urls = cloudProvider?.getModelListCandidates(key) ??

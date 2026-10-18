@@ -37,7 +37,7 @@ class GoogleProvider extends CloudProvider {
 
   @override
   Map<String, String> buildAuthHeaders(String apiKey) {
-    return {}; // Google uses query parameter for auth
+    return {'x-goog-api-key': apiKey};
   }
 
   @override
@@ -95,11 +95,14 @@ class GoogleProvider extends CloudProvider {
       };
     }
 
-    final url = '$endpoint/$model:generateContent?key=$apiKey';
+    final url = '$endpoint/$model:generateContent';
     final response = await http
         .post(
           Uri.parse(url),
-          headers: {'Content-Type': 'application/json'},
+          headers: {
+            'Content-Type': 'application/json',
+            ...buildAuthHeaders(apiKey),
+          },
           body: jsonEncode(body),
         )
         .timeout(const Duration(minutes: 3));
@@ -172,9 +175,12 @@ class GoogleProvider extends CloudProvider {
       };
     }
 
-    final url = '$endpoint/$model:streamGenerateContent?alt=sse&key=$apiKey';
+    final url = '$endpoint/$model:streamGenerateContent?alt=sse';
     final request = http.Request('POST', Uri.parse(url));
-    request.headers['Content-Type'] = 'application/json';
+    request.headers.addAll({
+      'Content-Type': 'application/json',
+      ...buildAuthHeaders(apiKey),
+    });
     request.body = jsonEncode(body);
 
     final streamedResponse = await request.send().timeout(
@@ -216,7 +222,7 @@ class GoogleProvider extends CloudProvider {
 
   @override
   List<String> getModelListCandidates(String apiKey) => [
-        'https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey',
+        'https://generativelanguage.googleapis.com/v1beta/models',
       ];
 
   @override

@@ -133,9 +133,10 @@ void main() {
   });
 
   group('keyFormatHint', () {
-    test('google expects AIza prefix', () {
+    test('google key formats are validated by Google, not prefix hints', () {
       expect(keyFormatHint('google', 'AIzaSyABC123'), isNull);
-      expect(keyFormatHint('google', 'AQ.Ab8xyz'), isNotNull);
+      expect(keyFormatHint('google', 'AQ.Ab8xyz'), isNull);
+      expect(keyFormatHint('google', 'any-nonempty-key'), isNull);
       expect(keyFormatHint('google', ''), isNull);
     });
 

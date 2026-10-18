@@ -1,0 +1,89 @@
+name: Android GPU test APK
+
+on:
+  # Keep expensive native builds manual while Android/Vulkan compatibility is audited.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-gpu-test-current-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out fork branch
+        uses: actions/checkout@v4
+
+      - name: Install Vulkan shader compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslc
+
+      - name: Set up Java with Gradle cache
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Flutter with dependency cache
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          cache-key: flutter-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          pub-cache-key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Build ARM64 Android debug APK
+        run: flutter build apk --debug --flavor gplay --target-platform android-arm64
+
+      - name: Prepare APK
+        run: cp build/app/outputs/flutter-apk/app-gplay-debug.apk CubicLM-Moto-GPU-test-debug.apk
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CubicLM-Moto-GPU-test-debug
+          path: CubicLM-Moto-GPU-test-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Check whether this is the latest branch commit
+        id: latest
+        shell: bash
+        run: |
+          latest_sha="$(git ls-remote origin refs/heads/fix/gemini-api-key-auth | awk '{print $1}')"
+          if [ "$GITHUB_SHA" = "$latest_sha" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping release upload from superseded commit $GITHUB_SHA"
+          fi
+
+      - name: Publish public test download
+        if: steps.latest.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-gpu-test
+          target_commitish: fix/gemini-api-key-auth
+          name: CubicLM Android GPU test build
+          body: |
+            Experimental ARM64 debug APK for testing Vulkan GPU detection/offload and
+            the two-thread low-RAM inference profile on the Moto G 2025.
+
+            This is a debug-signed test build, not a production release. Android will
+            only install it as an update if its signing certificate matches the
+            installed application. The GPU path still requires device-side testing.
+          prerelease: true
+          make_latest: false
+          files: CubicLM-Moto-GPU-test-debug.apk
+          overwrite_files: true
+          fail_on_unmatched_files: true

@@ -54,7 +54,7 @@ class ModelController extends GetxController {
   /// drops don't need an app release. Regenerate with
   /// `dart run tool/gen_catalog.dart` after editing AppConstants.
   static const _catalogUrl =
-      'https://raw.githubusercontent.com/CubicLM/CubicLM/main/assets/catalog/models.json';
+      'https://raw.githubusercontent.com/Gabe284/CubicLM/main/assets/catalog/models.json';
   static const _catalogCooldown = Duration(hours: 24);
   static const _androidImportChannel =
       MethodChannel('com.cubiclm.app/model_import');
@@ -66,6 +66,11 @@ class ModelController extends GetxController {
   final downloadedFiles = <String>[].obs;
   final isImporting = false.obs;
   final customModels = <AiModel>[].obs;
+  /// Actual remote byte sizes, kept separate from [fileSizes], which records
+  /// sizes measured on this device.
+  final remoteFileSizes = <String, int>{}.obs;
+  final Map<String, Future<void>> _remoteSizeLookups = {};
+  final Set<String> _remoteSizeLookupAttempted = {};
   final fileSizes = <String, int>{}.obs;
   final modelScope = 'dashboard'.obs;
   final localFilter = ''.obs;

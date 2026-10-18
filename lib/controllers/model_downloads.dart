@@ -171,7 +171,46 @@ extension ModelControllerDownloads on ModelController {
   String modelSizeLabel(AiModel model) {
     final bytes = fileSizes[model.filename] ?? 0;
     if (bytes > 0) return DownloadService.formatBytes(bytes);
-    return model.size;
+    final remoteBytes = remoteFileSizes[model.filename] ?? 0;
+    if (remoteBytes > 0) return DownloadService.formatBytes(remoteBytes);
+
+    // Catalog sizes are offline fallbacks. Resolve the exact file's byte
+    // length from its download URL once, asynchronously, when displayed.
+    if (!model.isImported && model.url.trim().isNotEmpty) {
+      unawaited(refreshRemoteModelSize(model));
+    }
+    return model.size.isNotEmpty ? model.size : 'Checking size…';
+  }
+
+  Future<void> refreshRemoteModelSize(AiModel model) {
+    final filename = model.filename;
+    if (model.isImported ||
+        model.url.trim().isEmpty ||
+        (fileSizes[filename] ?? 0) > 0 ||
+        (remoteFileSizes[filename] ?? 0) > 0) {
+      return Future<void>.value();
+    }
+
+    final existing = _remoteSizeLookups[filename];
+    if (existing != null) return existing;
+    if (!_remoteSizeLookupAttempted.add(filename)) {
+      return Future<void>.value();
+    }
+
+    final lookup = () async {
+      try {
+        final bytes = await _download.getRemoteFileSize(model.url);
+        if (bytes > 0 && (fileSizes[filename] ?? 0) <= 0) {
+          remoteFileSizes[filename] = bytes;
+        }
+      } catch (_) {
+        // Keep the catalog estimate when the repository is unavailable.
+      } finally {
+        _remoteSizeLookups.remove(filename);
+      }
+    }();
+    _remoteSizeLookups[filename] = lookup;
+    return lookup;
   }
 
   int _knownModelBytes(AiModel model) {
@@ -181,6 +220,8 @@ extension ModelControllerDownloads on ModelController {
   }
 
   int _declaredModelBytes(AiModel model) {
+    final remoteBytes = remoteFileSizes[model.filename] ?? 0;
+    if (remoteBytes > 0) return remoteBytes;
     final match = RegExp(r'([\d.]+)\s*(GB|MB)', caseSensitive: false)
         .firstMatch(model.size);
     if (match == null) return 0;
@@ -276,6 +317,9 @@ extension ModelControllerDownloads on ModelController {
       return;
     }
     try {
+      // Prefer repository-reported bytes for integrity checks and progress.
+      // If metadata is unavailable, the catalog fallback remains usable.
+      await refreshRemoteModelSize(model);
       await _download.downloadModel(
         url: model.url,
         filename: model.filename,

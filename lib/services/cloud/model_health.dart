@@ -183,9 +183,8 @@ String? keyFormatHint(String providerId, String key) {
   if (k.isEmpty) return null;
   switch (providerId) {
     case 'google':
-      if (!k.startsWith('AIza')) {
-        return 'This doesn\'t look like a Google AI Studio key (they start with "AIza"). Grab a free one at aistudio.google.com — or check for a typo.';
-      }
+      // Google validates the key server-side; do not reject new key formats
+      // based only on their prefix.
       return null;
     case 'openrouter':
       if (!k.startsWith('sk-or-')) {

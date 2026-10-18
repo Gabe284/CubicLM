@@ -19,7 +19,7 @@ endif()
 # llama.cpp options
 set(GGML_CPU_AARCH64 ON CACHE BOOL "Enable ARM64 support")
 set(GGML_DOTPROD ON CACHE BOOL "Enable ARM NEON dot product")
-set(GGML_VULKAN OFF CACHE BOOL "Enable Vulkan GPU backend")
+set(GGML_VULKAN ON CACHE BOOL "Enable Vulkan GPU backend" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "Disable OpenMP to avoid packaging libomp.so" FORCE)
 set(GGML_STATIC OFF CACHE BOOL "Build as shared library")
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries")
@@ -29,8 +29,41 @@ set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Disable tests")
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Disable examples")
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Disable server")
 
+# Vulkan-Headers provides the C++ Vulkan-Hpp wrapper omitted from Android NDK headers.
+# Pin a known release and use it only as headers; Vulkan::Vulkan still links the NDK loader.
+include(FetchContent)
+FetchContent_Declare(
+    vulkan_headers
+    GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+    GIT_TAG v1.4.321
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(vulkan_headers)
+if(NOT vulkan_headers_POPULATED)
+    FetchContent_Populate(vulkan_headers)
+endif()
+
+# ggml Vulkan also includes SPIRV-Headers' C++ enum definitions.
+FetchContent_Declare(
+    spirv_headers
+    GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
+    GIT_TAG vulkan-sdk-1.4.321.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(spirv_headers)
+if(NOT spirv_headers_POPULATED)
+    FetchContent_Populate(spirv_headers)
+endif()
+
 # Add llama.cpp
 add_subdirectory(src/main/cpp/llama.cpp)
+
+if(TARGET ggml-vulkan)
+    target_include_directories(ggml-vulkan PRIVATE
+        "${vulkan_headers_SOURCE_DIR}/include"
+        "${spirv_headers_SOURCE_DIR}/include"
+    )
+endif()
 
 # ggml-base is linked as a standalone shared object and contains C++ sources.
 # On Android/NDK it must explicitly link libc++ or symbols such as operator new
@@ -54,6 +87,12 @@ target_link_libraries(llama_jni
     android
     log
 )
+
+# Link the Vulkan backend into the JNI library so it is packaged and registered
+# with the native inference engine. CPU remains available as a fallback.
+if(TARGET ggml-vulkan)
+    target_link_libraries(llama_jni ggml-vulkan)
+endif()
 
 target_include_directories(llama_jni PRIVATE
     src/main/cpp/llama.cpp/include

@@ -52,8 +52,11 @@ Future<int> getRemoteFileSize(String url, {String? authToken}) async {
       url,
       options: Options(headers: headers, followRedirects: true),
     );
+    final linkedSize =
+        int.tryParse(response.headers.value('x-linked-size') ?? '') ?? 0;
     final length = response.headers.value(Headers.contentLengthHeader);
     final size = int.tryParse(length ?? '') ?? 0;
+    if (linkedSize > 0) return linkedSize;
     if (size > 0) return size;
   } catch (_) {
     // If HEAD fails, fall back to GET with Range
@@ -61,9 +64,10 @@ Future<int> getRemoteFileSize(String url, {String? authToken}) async {
 
   // 2. Try GET request with Range: bytes=0-0 (efficiently fetch metadata only)
   try {
-    final response = await _dio.get(
+    final response = await _dio.get<ResponseBody>(
       url,
       options: Options(
+        responseType: ResponseType.stream,
         headers: {
           ...headers,
           'Range': 'bytes=0-0',
@@ -71,21 +75,38 @@ Future<int> getRemoteFileSize(String url, {String? authToken}) async {
         followRedirects: true,
       ),
     );
-    
-    // Check Content-Range header first (e.g., bytes 0-0/12345678)
-    final contentRange = response.headers.value('content-range');
-    if (contentRange != null) {
-      final parts = contentRange.split('/');
-      if (parts.length > 1) {
-        final size = int.tryParse(parts.last.trim());
-        if (size != null && size > 0) return size;
+
+    try {
+      // Check Content-Range first (e.g., bytes 0-0/12345678).
+      final contentRange = response.headers.value('content-range');
+      if (contentRange != null) {
+        final parts = contentRange.split('/');
+        if (parts.length > 1) {
+          final size = int.tryParse(parts.last.trim());
+          if (size != null && size > 0) return size;
+        }
+      }
+
+      // Hugging Face may expose the original file size in this header.
+      final linkedSize =
+          int.tryParse(response.headers.value('x-linked-size') ?? '') ?? 0;
+      if (linkedSize > 0) return linkedSize;
+
+      // Some servers ignore Range and return 200 with the full file length.
+      // A 206 response's Content-Length is only the returned range, not the
+      // complete file, so never mistake a one-byte response for the model size.
+      if (response.statusCode != 206) {
+        final length = response.headers.value(Headers.contentLengthHeader);
+        final size = int.tryParse(length ?? '') ?? 0;
+        if (size > 0) return size;
+      }
+    } finally {
+      final body = response.data;
+      if (body != null) {
+        final subscription = body.stream.listen((_) {});
+        await subscription.cancel();
       }
     }
-
-    // Fallback to Content-Length (if the server ignored Range and returned the whole file)
-    final length = response.headers.value(Headers.contentLengthHeader);
-    final size = int.tryParse(length ?? '') ?? 0;
-    if (size > 0) return size;
   } catch (_) {
     // Both failed
   }

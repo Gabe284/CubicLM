@@ -2070,6 +2070,34 @@ struct vk_instance_t {
 static bool vk_instance_initialized = false;
 static vk_instance_t vk_instance;
 
+// Resolve Vulkan 1.1 feature queries through the instance loader. Android's
+// Vulkan loader does not guarantee that the KHR alias is exported as a linkable
+// symbol, even when the driver supports the command.
+static bool ggml_vk_get_physical_device_features2(
+        VkPhysicalDevice physical_device,
+        VkPhysicalDeviceFeatures2 * features) {
+    if (!vk_instance.instance) {
+        return false;
+    }
+
+    const VkInstance instance = static_cast<VkInstance>(vk_instance.instance);
+    auto get_features2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
+    if (get_features2 != nullptr) {
+        get_features2(physical_device, features);
+        return true;
+    }
+
+    auto get_features2_khr = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2KHR>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR"));
+    if (get_features2_khr != nullptr) {
+        get_features2_khr(physical_device, features);
+        return true;
+    }
+
+    return false;
+}
+
 #ifdef GGML_VULKAN_CHECK_RESULTS
 static size_t vk_skip_checks;
 static size_t vk_output_tensor;
@@ -5272,7 +5300,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
         }
 #endif
 
-        vkGetPhysicalDeviceFeatures2(device->physical_device, &device_features2);
+        if (!ggml_vk_get_physical_device_features2(device->physical_device, &device_features2)) {
+            throw std::runtime_error("Vulkan feature query function is unavailable");
+        }
 
         device->pipeline_executable_properties_support = pipeline_executable_properties_support;
 
@@ -5759,7 +5789,9 @@ static void ggml_vk_print_gpu_info(size_t idx) {
     }
 #endif
 
-    vkGetPhysicalDeviceFeatures2(physical_device, &device_features2);
+    if (!ggml_vk_get_physical_device_features2(physical_device, &device_features2)) {
+        throw std::runtime_error("Vulkan feature query function is unavailable");
+    }
 
     fp16 = fp16 && vk12_features.shaderFloat16;
 
@@ -15161,6 +15193,37 @@ void ggml_backend_vk_get_device_description(int device, char * description, size
     ggml_vk_get_device_description(dev_idx, description, description_size);
 }
 
+bool ggml_backend_vk_get_device_info(int device, uint32_t * api_version, int * device_type) {
+    ggml_vk_instance_init();
+
+    if (device < 0 || device >= (int) vk_instance.device_indices.size()) {
+        return false;
+    }
+
+    const int physical_device_index = vk_instance.device_indices[device];
+    const std::vector<vk::PhysicalDevice> devices = vk_instance.instance.enumeratePhysicalDevices();
+    if (physical_device_index < 0 || physical_device_index >= (int) devices.size()) {
+        return false;
+    }
+
+    vk::PhysicalDeviceProperties props = {};
+    devices[physical_device_index].getProperties(&props);
+
+    if (api_version != nullptr) {
+        *api_version = props.apiVersion;
+    }
+    if (device_type != nullptr) {
+        *device_type = static_cast<int>(props.deviceType);
+    }
+
+    // llama.cpp's Vulkan backend requires Vulkan 1.2 and actual integrated
+    // or discrete hardware. Reject CPU/software Vulkan implementations such
+    // as llvmpipe/lavapipe and SwiftShader instead of reporting GPU support.
+    return props.apiVersion >= VK_API_VERSION_1_2 &&
+        (props.deviceType == vk::PhysicalDeviceType::eIntegratedGpu ||
+         props.deviceType == vk::PhysicalDeviceType::eDiscreteGpu);
+}
+
 void ggml_backend_vk_get_device_memory(int device, size_t * free, size_t * total) {
     GGML_ASSERT(device < (int) vk_instance.device_indices.size());
     GGML_ASSERT(device < (int) vk_instance.device_supports_membudget.size());
@@ -16153,7 +16216,9 @@ static bool ggml_vk_device_is_supported(const vk::PhysicalDevice & vkdev) {
     vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
     device_features2.pNext = &vk11_features;
 
-    vkGetPhysicalDeviceFeatures2(vkdev, &device_features2);
+    if (!ggml_vk_get_physical_device_features2(static_cast<VkPhysicalDevice>(vkdev), &device_features2)) {
+        return false;
+    }
 
     return vk11_features.storageBuffer16BitAccess;
 }

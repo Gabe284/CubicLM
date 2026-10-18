@@ -123,12 +123,13 @@ class GgufEngine {
     required double availGb,
   }) {
     if (availGb <= 0 || availGb >= 3.0) return threads;
-    // Below 1.5GB every thread's compute buffer matters: single thread.
-    if (availGb < 1.5) return threads <= 1 ? threads : 1;
-    // Below 2.5GB a second/third thread's buffers + a hot phone after
-    // turn 1 push prefill over the edge (observed turn-2 death at
-    // 2.1GB/3 threads): cap at 2.
-    final cap = availGb < 2.5 ? 2 : 3;
+    // Keep the batch small under pressure, but use two CPU workers as the
+    // minimum low-RAM profile to avoid single-thread prompt-processing stalls.
+    // This may raise peak RSS; models still retain the existing context and
+    // batch-size caps, and Tensor+Gemma's known single-thread workaround below
+    // is reapplied after this generic clamp.
+    if (availGb < 2.5) return 2;
+    const cap = 3;
     return threads <= cap ? threads : cap;
   }
 
@@ -144,15 +145,11 @@ class GgufEngine {
   }
 
   /// Batch thread count by free RAM (pure logic, unit tested).
-  /// Prompt-parallel work scales with threads. 1 thread halves the
-  /// transient spike but makes prefill ~4x slower than release-era
-  /// defaults — on 1.5–2.5GB phones that pushed a 300-token prefill
-  /// past every first-token timeout (healthy prefill murdered as
-  /// "Model did not respond"). 2 threads halves prefill time back
-  /// (~35s) while keeping batch=128's small spike; <1.5GB stays at
-  /// 1 thread. -1 keeps the native default (= generation threads).
+  /// Two workers are used across the low-RAM tier while batch size remains
+  /// capped at 128 to constrain the prompt-processing memory spike.
+  /// -1 keeps the native default (= generation threads) when RAM is unknown
+  /// or plentiful.
   static int resolveBatchThreads(double availGb) {
-    if (availGb > 0 && availGb < 1.5) return 1;
     if (availGb > 0 && availGb < 2.5) return 2;
     return -1;
   }
@@ -183,9 +180,9 @@ class GgufEngine {
   /// alone must not force full offload when RAM is tight (instant
   /// OOM, no catch possible). When the model file + KV cache + 20%
   /// headroom fits in free RAM → full offload (99) on any Vulkan GPU.
-  /// Otherwise fall back to the tier heuristic ([gpuNum] ≥ 650 keeps
-  /// the plugin's [recommendedLayers]); unknown RAM ([availBytes] ≤ 0)
-  /// also falls back to the heuristic.
+  /// Otherwise use the backend's RAM-aware [recommendedLayers] for any
+  /// detected Vulkan GPU (including Mali); unknown RAM ([availBytes] ≤ 0)
+  /// also falls back to that recommendation.
   static int resolveAutoGpuLayers({
     required bool vulkanSupported,
     required int gpuNum,
@@ -193,13 +190,18 @@ class GgufEngine {
     required int fileBytes,
     required int kvBytes,
     required int availBytes,
+    bool allowLowTierOffload = false,
   }) {
     if (!vulkanSupported) return 0;
     if (availBytes > 0 && fileBytes > 0) {
       final fullNeed = ((fileBytes + kvBytes) * 1.2).round();
       if (fullNeed <= availBytes) return 99;
     }
-    if (gpuNum >= 650 && recommendedLayers > 0) return recommendedLayers;
+    // Respect backend recommendations for high-tier GPUs, plus Mali devices
+    // explicitly approved by the platform layer when shared RAM permits it.
+    if ((gpuNum >= 650 || allowLowTierOffload) && recommendedLayers > 0) {
+      return recommendedLayers;
+    }
     return 0;
   }
 
@@ -448,6 +450,7 @@ class GgufEngine {
         fileBytes: fileBytes,
         kvBytes: kvBytes,
         availBytes: gpu.freeRamBytes,
+        allowLowTierOffload: gpu.gpuName.toLowerCase().contains('mali'),
       );
       print('[Inference] Auto offload → $gpuLayers layers '
           '(file=${fileBytes ~/ 1024 ~/ 1024}MB, '
@@ -536,6 +539,11 @@ class GgufEngine {
           '[Inference] Low-RAM load (${availGb.toStringAsFixed(1)}GB free) — threads $threads → $clampedThreads');
     }
     threads = clampedThreads;
+    // Preserve the known Tensor+Gemma correctness workaround after the generic
+    // two-thread low-RAM floor above.
+    if (isTensorSoC && modelName.contains('gemma')) {
+      threads = 1;
+    }
     // Large-model mode: cap at 2 threads on top — each extra thread
     // grows the native compute buffer that big models can't spare.
     if (largeMode && threads > 2) {

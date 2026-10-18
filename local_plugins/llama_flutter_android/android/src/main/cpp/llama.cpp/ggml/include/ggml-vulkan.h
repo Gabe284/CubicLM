@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #include "ggml.h"
 #include "ggml-backend.h"
 
@@ -17,6 +19,10 @@ GGML_BACKEND_API bool ggml_backend_is_vk(ggml_backend_t backend);
 GGML_BACKEND_API int  ggml_backend_vk_get_device_count(void);
 GGML_BACKEND_API void ggml_backend_vk_get_device_description(int device, char * description, size_t description_size);
 GGML_BACKEND_API void ggml_backend_vk_get_device_memory(int device, size_t * free, size_t * total);
+
+// Reports the selected physical device's API version and Vulkan device type.
+// Returns false unless it is a hardware GPU supported by this backend and Vulkan 1.2+.
+GGML_BACKEND_API bool ggml_backend_vk_get_device_info(int device, uint32_t * api_version, int * device_type);
 
 GGML_BACKEND_API ggml_backend_buffer_type_t ggml_backend_vk_buffer_type(size_t dev_num);
 // pinned host buffer for use with the CPU backend for faster copies between CPU and GPU
