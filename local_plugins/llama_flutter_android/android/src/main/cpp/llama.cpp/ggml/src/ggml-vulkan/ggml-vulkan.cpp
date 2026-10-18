@@ -2070,6 +2070,34 @@ struct vk_instance_t {
 static bool vk_instance_initialized = false;
 static vk_instance_t vk_instance;
 
+// Resolve Vulkan 1.1 feature queries through the instance loader. Android's
+// Vulkan loader does not guarantee that the KHR alias is exported as a linkable
+// symbol, even when the driver supports the command.
+static bool ggml_vk_get_physical_device_features2(
+        VkPhysicalDevice physical_device,
+        VkPhysicalDeviceFeatures2 * features) {
+    if (!vk_instance.instance) {
+        return false;
+    }
+
+    const VkInstance instance = static_cast<VkInstance>(vk_instance.instance);
+    auto get_features2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
+    if (get_features2 != nullptr) {
+        get_features2(physical_device, features);
+        return true;
+    }
+
+    auto get_features2_khr = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2KHR>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR"));
+    if (get_features2_khr != nullptr) {
+        get_features2_khr(physical_device, features);
+        return true;
+    }
+
+    return false;
+}
+
 #ifdef GGML_VULKAN_CHECK_RESULTS
 static size_t vk_skip_checks;
 static size_t vk_output_tensor;
@@ -5272,7 +5300,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
         }
 #endif
 
-        vk::PhysicalDevice(device->physical_device).getFeatures2(&device_features2);
+        if (!ggml_vk_get_physical_device_features2(device->physical_device, &device_features2)) {
+            throw std::runtime_error("Vulkan feature query function is unavailable");
+        }
 
         device->pipeline_executable_properties_support = pipeline_executable_properties_support;
 
@@ -5759,7 +5789,9 @@ static void ggml_vk_print_gpu_info(size_t idx) {
     }
 #endif
 
-    vk::PhysicalDevice(physical_device).getFeatures2(&device_features2);
+    if (!ggml_vk_get_physical_device_features2(physical_device, &device_features2)) {
+        throw std::runtime_error("Vulkan feature query function is unavailable");
+    }
 
     fp16 = fp16 && vk12_features.shaderFloat16;
 
@@ -16184,7 +16216,9 @@ static bool ggml_vk_device_is_supported(const vk::PhysicalDevice & vkdev) {
     vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
     device_features2.pNext = &vk11_features;
 
-    vkdev.getFeatures2(&device_features2);
+    if (!ggml_vk_get_physical_device_features2(static_cast<VkPhysicalDevice>(vkdev), &device_features2)) {
+        return false;
+    }
 
     return vk11_features.storageBuffer16BitAccess;
 }
