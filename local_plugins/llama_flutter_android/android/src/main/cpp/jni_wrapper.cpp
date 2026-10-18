@@ -488,7 +488,12 @@ Java_com_write4me_llama_1flutter_1android_LlamaFlutterAndroidPlugin_nativeDetect
     // Register the compiled Vulkan backend once. A missing device or driver
     // initialization failure falls back to CPU inference at the Dart layer.
     if (ggml_backend_reg_by_name(GGML_VK_NAME) == nullptr) {
-        ggml_backend_register(ggml_backend_vk_reg());
+        ggml_backend_reg_t vk_reg = ggml_backend_vk_reg();
+        if (vk_reg == nullptr) {
+            LOGI("nativeDetectGpu: Vulkan initialization failed; CPU fallback");
+            return nullptr;
+        }
+        ggml_backend_register(vk_reg);
     }
 
     const int device_count = ggml_backend_vk_get_device_count();
