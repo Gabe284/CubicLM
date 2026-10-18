@@ -68,9 +68,10 @@ void main() {
       expect(ToolchainCatalog.formatBytes(-5), '—');
     });
 
-    test('core extracts to root (ubuntu/ + bin/proot), overlays to rootfs',
+    test('environment bundles extract to runtime root, overlays to Ubuntu rootfs',
         () {
       expect(RuntimeInstaller.extractSubdirFor(ToolchainId.core), '');
+      expect(RuntimeInstaller.extractSubdirFor(ToolchainId.debian), '');
       for (final id in [
         ToolchainId.node,
         ToolchainId.python,
