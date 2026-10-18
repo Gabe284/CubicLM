@@ -1,6 +1,13 @@
 name: Android Vulkan compile check
 
 on:
+  push:
+    branches: [main, 'fix/**']
+    paths:
+      - 'local_plugins/llama_flutter_android/**'
+      - 'android/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/android-vulkan-compile.yml'
   pull_request:
     branches: [main]
     paths:
