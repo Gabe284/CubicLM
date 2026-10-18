@@ -145,15 +145,11 @@ class GgufEngine {
   }
 
   /// Batch thread count by free RAM (pure logic, unit tested).
-  /// Prompt-parallel work scales with threads. 1 thread halves the
-  /// transient spike but makes prefill ~4x slower than release-era
-  /// defaults — on 1.5–2.5GB phones that pushed a 300-token prefill
-  /// past every first-token timeout (healthy prefill murdered as
-  /// "Model did not respond"). 2 threads halves prefill time back
-  /// (~35s) while keeping batch=128's small spike; <1.5GB stays at
-  /// 1 thread. -1 keeps the native default (= generation threads).
+  /// Two workers are used across the low-RAM tier while batch size remains
+  /// capped at 128 to constrain the prompt-processing memory spike.
+  /// -1 keeps the native default (= generation threads) when RAM is unknown
+  /// or plentiful.
   static int resolveBatchThreads(double availGb) {
-    if (availGb > 0 && availGb < 1.5) return 1;
     if (availGb > 0 && availGb < 2.5) return 2;
     return -1;
   }
@@ -184,9 +180,9 @@ class GgufEngine {
   /// alone must not force full offload when RAM is tight (instant
   /// OOM, no catch possible). When the model file + KV cache + 20%
   /// headroom fits in free RAM → full offload (99) on any Vulkan GPU.
-  /// Otherwise fall back to the tier heuristic ([gpuNum] ≥ 650 keeps
-  /// the plugin's [recommendedLayers]); unknown RAM ([availBytes] ≤ 0)
-  /// also falls back to the heuristic.
+  /// Otherwise use the backend's RAM-aware [recommendedLayers] for any
+  /// detected Vulkan GPU (including Mali); unknown RAM ([availBytes] ≤ 0)
+  /// also falls back to that recommendation.
   static int resolveAutoGpuLayers({
     required bool vulkanSupported,
     required int gpuNum,
