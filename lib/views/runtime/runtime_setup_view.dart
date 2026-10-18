@@ -267,10 +267,56 @@ class _RuntimeSetupViewState extends State<RuntimeSetupView> {
   Widget _toolchainsPane(BuildContext context, bool isDark) {
     return Obx(() {
       final stacks = ToolchainCatalog.stacks();
+      final ubuntuReady =
+          _installer.statuses[ToolchainId.core]?.state == ToolchainState.ready;
+      final debianReady =
+          _installer.statuses[ToolchainId.debian]?.state == ToolchainState.ready;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (!runtimeSupported) _desktopNote(context, isDark),
+          Text(
+            'Active execution environment',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          SegmentedButton<String>(
+            segments: [
+              ButtonSegment<String>(
+                value: 'ubuntu',
+                label: const Text('Ubuntu'),
+                enabled: ubuntuReady,
+              ),
+              ButtonSegment<String>(
+                value: 'debian',
+                label: const Text('Debian'),
+                enabled: debianReady,
+              ),
+            ],
+            selected: {_installer.activeEnvironment.value},
+            onSelectionChanged: (selection) async {
+              if (selection.isEmpty) return;
+              final error = await _installer.setActiveEnvironment(selection.first);
+              if (error != null) {
+                AppSnackbar.showTop('Environment not changed', error);
+              } else if (mounted) {
+                setState(() {});
+              }
+            },
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Ubuntu and Debian use separate root filesystems. Install both to switch between them; installing or removing Debian must not remove Ubuntu.',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 11,
+              height: 1.4,
+              color: Theme.of(context).hintColor,
+            ),
+          ),
+          const SizedBox(height: 14),
           for (final s in stacks) _stackCard(context, isDark, s),
         ],
       );
