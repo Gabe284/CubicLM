@@ -398,9 +398,9 @@ class _RuntimeSetupViewState extends State<RuntimeSetupView> {
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
-                s.id == ToolchainId.core
-                    ? 'Android-only runtime — install is disabled on this platform.'
-                    : 'Needs the Core runtime (Android-only) — install is disabled on this platform.',
+                s.needsCore
+                    ? 'Needs the Core Ubuntu runtime (Android-only) — install is disabled on this platform.'
+                    : 'Android-only Linux environment — install is disabled on this platform.',
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   fontStyle: FontStyle.italic,
