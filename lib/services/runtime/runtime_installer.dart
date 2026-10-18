@@ -418,24 +418,39 @@ class RuntimeInstaller extends GetxService {
   /// Write resolv.conf + ensure `bin/proot` is executable. Returns an
   /// error string, or null on success. Never throws.
   Future<String?> _finalizeEnvironment(String root, String environment) async {
+    if (environment != 'ubuntu' && environment != 'debian') {
+      return 'Unsupported Linux environment: $environment';
+    }
+    final bash = File('$root/$environment/usr/bin/bash');
+    final proot = File('$root/bin/proot');
+    final loader = File('$root/libexec/proot/loader');
+    if (!await bash.exists()) {
+      return 'The $environment bundle is incomplete: usr/bin/bash is missing.';
+    }
+    if (!await proot.exists() || !await loader.exists()) {
+      return 'The $environment bundle is incomplete: PRoot or its loader is missing.';
+    }
     try {
       final etc = Directory('$root/$environment/etc');
       await etc.create(recursive: true);
-      await File('${etc.path}/resolv.conf')
-          .writeAsString(_resolvConf, flush: true);
+      await File('\${etc.path}/resolv.conf').writeAsString(_resolvConf, flush: true);
     } catch (e) {
       return 'Could not write $environment guest DNS config: $e';
     }
     try {
-      final proot = File('$root/bin/proot');
-      if (await proot.exists()) {
-        await Process.run(
-          'chmod',
-          ['0755', proot.path],
-          runInShell: false,
-        ).timeout(const Duration(seconds: 10));
+      final chmod = await Process.run('chmod', ['0755', proot.path], runInShell: false)
+          .timeout(const Duration(seconds: 10));
+      if (chmod.exitCode != 0 && !proot.canExecute()) {
+        return 'Could not make the PRoot binary executable: \${chmod.stderr}';
       }
-    } catch (_) {}
+    } catch (e) {
+      if (!proot.canExecute()) {
+        return 'Could not make the PRoot binary executable: $e';
+      }
+    }
+    if (!proot.canExecute()) {
+      return 'The PRoot binary is not executable after extraction.';
+    }
     return null;
   }
 
