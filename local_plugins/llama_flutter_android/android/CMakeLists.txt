@@ -19,7 +19,7 @@ endif()
 # llama.cpp options
 set(GGML_CPU_AARCH64 ON CACHE BOOL "Enable ARM64 support")
 set(GGML_DOTPROD ON CACHE BOOL "Enable ARM NEON dot product")
-set(GGML_VULKAN OFF CACHE BOOL "Enable Vulkan GPU backend")
+set(GGML_VULKAN ON CACHE BOOL "Enable Vulkan GPU backend" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "Disable OpenMP to avoid packaging libomp.so" FORCE)
 set(GGML_STATIC OFF CACHE BOOL "Build as shared library")
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries")
@@ -54,6 +54,12 @@ target_link_libraries(llama_jni
     android
     log
 )
+
+# Link the Vulkan backend into the JNI library so it is packaged and registered
+# with the native inference engine. CPU remains available as a fallback.
+if(TARGET ggml-vulkan)
+    target_link_libraries(llama_jni ggml-vulkan)
+endif()
 
 target_include_directories(llama_jni PRIVATE
     src/main/cpp/llama.cpp/include
