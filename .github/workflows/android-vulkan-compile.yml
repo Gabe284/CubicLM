@@ -1,0 +1,60 @@
+name: Android Vulkan compile check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'local_plugins/llama_flutter_android/**'
+      - 'android/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/android-vulkan-compile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-vulkan-compile-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out pull request source
+        uses: actions/checkout@v4
+
+      - name: Install Vulkan shader compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslc
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Flutter with dependency cache
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          cache-key: flutter-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          pub-cache-key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Build ARM64 Android debug APK
+        run: flutter build apk --debug --flavor gplay --target-platform android-arm64
+
+      - name: Upload compile-check APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-vulkan-compile-check
+          path: build/app/outputs/flutter-apk/app-gplay-debug.apk
+          if-no-files-found: error
+          retention-days: 14
