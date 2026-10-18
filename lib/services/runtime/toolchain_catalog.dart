@@ -109,7 +109,7 @@ class ToolchainCatalog {
           needsCore: false,
           downloadNote: 'Separate environment; installing or removing it must not alter Ubuntu.',
           available: false,
-          unavailableReason: 'The Debian ARM64 rootfs bundle is not published yet. The shared PRoot runtime must be separated from the Ubuntu rootfs before Debian can install independently.',
+          unavailableReason: 'The Debian ARM64 bundle is not published yet. It must include a Debian rootfs plus a verified PRoot binary, loader, and native libraries so Debian can install without requiring Ubuntu.',
         ),
         ToolchainStack(
           id: ToolchainId.node,
