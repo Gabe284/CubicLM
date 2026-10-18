@@ -18,6 +18,10 @@ import 'tool_interface.dart';
 /// Central registry for all tools (built-in + MCP).
 class ToolRegistry {
   final Map<String, Tool> _builtInTools = {};
+
+  /// Workspace supplied by AgentRunner for cloud-provider tool dispatch.
+  /// Empty outside a project run; path-based tools must fail closed then.
+  String cloudWorkspacePath = '';
   final Set<String> _alwaysAllow = {};
   bool _approvalEnabled = true;
 
