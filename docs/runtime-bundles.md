@@ -16,7 +16,7 @@ Node v24.21.0 — all green before publish.
 - `usr/local/{bin,lib,include,share}/**` — Node.js (on PATH already)
 
 Post-extract the app writes `ubuntu/etc/resolv.conf` (8.8.8.8/1.1.1.1)
-and chmods `bin/proot` — see `RuntimeInstaller._finalizeCore`.
+and validates the rootfs, PRoot binary, and loader before writing a ready marker — see `RuntimeInstaller._finalizeEnvironment`.
 
 ## Debian environment bundle contract
 
