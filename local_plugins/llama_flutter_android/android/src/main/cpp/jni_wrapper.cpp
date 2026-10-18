@@ -502,16 +502,23 @@ Java_com_write4me_llama_1flutter_1android_LlamaFlutterAndroidPlugin_nativeDetect
         return nullptr;
     }
 
+    uint32_t api_version = 0;
+    int device_type = 0;
+    if (!ggml_backend_vk_get_device_info(0, &api_version, &device_type)) {
+        LOGI("nativeDetectGpu: no Vulkan 1.2+ hardware GPU; CPU fallback");
+        return nullptr;
+    }
+
     char device_name[256] = {0};
     ggml_backend_vk_get_device_description(0, device_name, sizeof(device_name));
     size_t free_memory = 0;
     size_t total_memory = 0;
     ggml_backend_vk_get_device_memory(0, &free_memory, &total_memory);
 
-    jlong stats[2] = {-1L, static_cast<jlong>(total_memory)};
+    jlong stats[2] = {static_cast<jlong>(api_version), static_cast<jlong>(total_memory)};
     env->SetLongArrayRegion(outStats, 0, 2, stats);
-    LOGI("nativeDetectGpu: Vulkan device=%s, free=%zu, total=%zu",
-         device_name, free_memory, total_memory);
+    LOGI("nativeDetectGpu: Vulkan device=%s, apiVersion=%u, type=%d, free=%zu, total=%zu",
+         device_name, api_version, device_type, free_memory, total_memory);
     return env->NewStringUTF(device_name);
 }
 
