@@ -1,0 +1,76 @@
+name: Android GPU test APK
+
+on:
+  push:
+    branches:
+      - fix/gemini-api-key-auth
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out fork branch
+        uses: actions/checkout@v4
+
+      - name: Install Vulkan shader compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslc
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze Dart code
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test --concurrency=1
+
+      - name: Build ARM64 Android debug APK
+        run: flutter build apk --debug --flavor gplay --target-platform android-arm64
+
+      - name: Prepare APK
+        run: cp build/app/outputs/flutter-apk/app-gplay-debug.apk CubicLM-Moto-GPU-test-debug.apk
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CubicLM-Moto-GPU-test-debug
+          path: CubicLM-Moto-GPU-test-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish public test download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-gpu-test
+          target_commitish: fix/gemini-api-key-auth
+          name: CubicLM Android GPU test build
+          body: |
+            Experimental ARM64 debug APK for testing Vulkan GPU detection/offload and
+            the two-thread low-RAM inference profile on the Moto G 2025.
+
+            This is a debug-signed test build, not a production release. Android will
+            only install it as an update if its signing certificate matches the
+            installed application. The GPU path still requires device-side testing.
+          prerelease: true
+          make_latest: false
+          files: CubicLM-Moto-GPU-test-debug.apk
+          overwrite_files: true
+          fail_on_unmatched_files: true
