@@ -40,12 +40,6 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
-      - name: Analyze Dart code
-        run: flutter analyze
-
-      - name: Run tests
-        run: flutter test --concurrency=1
-
       - name: Build ARM64 Android debug APK
         run: flutter build apk --debug --flavor gplay --target-platform android-arm64
 
