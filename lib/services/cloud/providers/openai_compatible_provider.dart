@@ -274,12 +274,12 @@ abstract class OpenAICompatibleProvider extends CloudProvider {
           final toolReg = Get.find<ToolRegistry>();
           final tool = toolReg.getTool(name);
           if (tool != null) {
-            // Workspace path will be properly set by agent loop; for cloud
-            // provider direct calls, use empty string (file tools will fail gracefully).
+            // AgentRunner supplies the active project workspace for the duration
+            // of its cloud call. Direct provider calls remain workspace-less.
             // executeApproved: approval already happened above; emits a
             // trace record for the agent loop.
             final toolResult = await toolReg.executeApproved(name, args, ToolContext(
-              workspacePath: '',
+              workspacePath: toolReg.cloudWorkspacePath,
               approve: (n, a) => _approveToolCall(n, a),
             ));
             result = {
