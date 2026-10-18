@@ -231,7 +231,7 @@ class RuntimeInstaller extends GetxService {
     if (busy.value) return 'Another install is already running.';
     final stack = ToolchainCatalog.stackOf(id);
     if (!stack.available) {
-      return 'This stack is not published yet — coming soon.';
+      return stack.unavailableReason;
     }
     final blocks = await preflight(id);
     if (blocks.isNotEmpty) return blocks.join('\n');
