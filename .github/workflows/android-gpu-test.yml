@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: android-gpu-test-${{ github.ref }}
+  group: android-gpu-test-current-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
