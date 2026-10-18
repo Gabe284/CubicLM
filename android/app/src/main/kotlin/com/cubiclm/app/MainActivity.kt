@@ -54,6 +54,7 @@ class MainActivity : FlutterFragmentActivity() {
     /// Runtime root reported by Dart (RuntimeInstaller), e.g.
     /// <app-support>/runtime. Null until the installer initializes.
     @Volatile private var pendingRuntimeRoot: String? = null
+    @Volatile private var pendingRuntimeEnvironment: String = "ubuntu"
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -2449,7 +2450,7 @@ class MainActivity : FlutterFragmentActivity() {
 
         // Runtime toolchain keep-alive + progress (Dart: RuntimeInstaller).
         // Channel "com.cubiclm.app/runtime": setKeepAlive {active},
-        // updateProgress {title, fraction, line}, setRuntimeRoot {path}.
+        // updateProgress {title, fraction, line}, setRuntimeRoot {path, environment}.
         val runtimeChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.cubiclm.app/runtime",
@@ -2471,7 +2472,13 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 "setRuntimeRoot" -> {
                     pendingRuntimeRoot = call.argument<String>("path")
-                    result.success(null)
+                    val requested = call.argument<String>("environment") ?: "ubuntu"
+                    if (requested != "ubuntu" && requested != "debian") {
+                        result.error("BAD_ENVIRONMENT", "Unsupported Linux environment", null)
+                    } else {
+                        pendingRuntimeEnvironment = requested
+                        result.success(null)
+                    }
                 }
                 else -> result.notImplemented()
             }
@@ -2962,8 +2969,10 @@ class MainActivity : FlutterFragmentActivity() {
             when (call.method) {
                 "ping" -> {
                     thread(name = "proot-ping") {
+                        val environment = call.argument<String>("environment")
+                            ?: pendingRuntimeEnvironment
                         val ok = try {
-                            isProotReady()
+                            isProotReady(environment)
                         } catch (_: Exception) {
                             false
                         }
@@ -2973,12 +2982,14 @@ class MainActivity : FlutterFragmentActivity() {
                 "exec" -> {
                     val command = call.argument<String>("command") ?: ""
                     val cwd = call.argument<String>("cwd") ?: ""
+                    val environment = call.argument<String>("environment")
+                        ?: pendingRuntimeEnvironment
                     val timeoutMs =
                         (call.argument<Any>("timeoutMs") as? Number)?.toLong()
                             ?: 30000L
                     thread(name = "proot-exec") {
                         try {
-                            val outcome = runProotExec(command, cwd, timeoutMs)
+                            val outcome = runProotExec(command, cwd, timeoutMs, environment)
                             mainHandler.post { result.success(outcome) }
                         } catch (e: Exception) {
                             mainHandler.post {
@@ -3165,10 +3176,12 @@ class MainActivity : FlutterFragmentActivity() {
 
     /// True when the Core toolchain can execute: rootfs bash + ready
     /// marker + executable proot binary + loader + bundled libs.
-    private fun isProotReady(): Boolean {
+    private fun isProotReady(environment: String): Boolean {
+        if (environment != "ubuntu" && environment != "debian") return false
         val root = runtimeRoot() ?: return false
-        if (!File(root, ".ready-core").isFile) return false
-        if (!File(root, "ubuntu/usr/bin/bash").isFile) return false
+        val marker = if (environment == "ubuntu") ".ready-core" else ".ready-debian"
+        if (!File(root, marker).isFile) return false
+        if (!File(root, "$environment/usr/bin/bash").isFile) return false
         if (!File(root, "libexec/proot/loader").isFile) return false
         return prootBinary() != null
     }
@@ -3180,15 +3193,23 @@ class MainActivity : FlutterFragmentActivity() {
         command: String,
         cwd: String,
         timeoutMs: Long,
+        environment: String,
     ): Map<String, Any?> {
         if (command.isBlank()) {
             return mapOf("stdout" to "", "stderr" to "Empty command.", "exitCode" to -1)
+        }
+        if (environment != "ubuntu" && environment != "debian") {
+            return mapOf("stdout" to "", "stderr" to "Unsupported Linux environment.", "exitCode" to -1)
         }
         val root = runtimeRoot()
             ?: return mapOf("stdout" to "", "stderr" to "Runtime not installed.", "exitCode" to -1)
         val proot = prootBinary()
             ?: return mapOf("stdout" to "", "stderr" to "PRoot binary missing.", "exitCode" to -1)
-        val rootfs = File(root, "ubuntu")
+        val rootfs = File(root, environment)
+        val marker = if (environment == "ubuntu") ".ready-core" else ".ready-debian"
+        if (!File(root, marker).isFile || !File(rootfs, "usr/bin/bash").isFile) {
+            return mapOf("stdout" to "", "stderr" to "Linux environment '$environment' is not installed or is incomplete.", "exitCode" to -1)
+        }
 
         val hostDir = when {
             cwd.isBlank() -> filesDir
