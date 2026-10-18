@@ -58,6 +58,9 @@ class ToolchainStack {
   /// Runtime log lane).
   final bool available;
 
+  /// Actionable reason when a stack is intentionally unavailable.
+  final String unavailableReason;
+
   const ToolchainStack({
     required this.id,
     required this.title,
@@ -66,6 +69,7 @@ class ToolchainStack {
     this.needsCore = true,
     required this.downloadNote,
     this.available = true,
+    this.unavailableReason = 'A compatible bundle has not been published.',
   });
 }
 
@@ -132,6 +136,7 @@ class ToolchainCatalog {
               'Large download. Enables the build play button → direct install.',
           // Needs an ARM64 AAPT2 built from AOSP source — honest hold.
           available: false,
+          unavailableReason: 'Android SDK builds need a verified ARM64 AAPT2 binary and a tested Android SDK/Gradle bundle. Neither is published yet.',
         ),
         ToolchainStack(
           id: ToolchainId.cpp,
@@ -146,6 +151,7 @@ class ToolchainCatalog {
           ],
           downloadNote: 'For native compilation inside the runtime.',
           available: false,
+          unavailableReason: 'The ARM64 GCC/Clang/Make/CMake overlay is not published or compile-tested yet.',
         ),
         ToolchainStack(
           id: ToolchainId.php,
@@ -160,6 +166,7 @@ class ToolchainCatalog {
           ],
           downloadNote: 'For PHP projects and Composer packages.',
           available: false,
+          unavailableReason: 'The ARM64 PHP CLI + Composer overlay is not published or version-tested yet.',
         ),
       ];
 
