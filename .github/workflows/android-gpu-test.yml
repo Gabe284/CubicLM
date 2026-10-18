@@ -1,28 +1,7 @@
 name: Android GPU test APK
 
 on:
-  push:
-    branches:
-      - fix/gemini-api-key-auth
-    paths:
-      - '**.dart'
-      - '**.kt'
-      - '**.java'
-      - '**.cpp'
-      - '**.h'
-      - '**.hpp'
-      - '**.cmake'
-      - '**/CMakeLists.txt'
-      - '**.gradle'
-      - '**.gradle.kts'
-      - '**/gradle-wrapper.properties'
-      - 'gradle/**'
-      - 'pubspec.yaml'
-      - 'pubspec.lock'
-      - 'assets/**'
-      - 'android/**'
-      - 'local_plugins/**'
-      - '.github/workflows/**'
+  # Keep expensive native builds manual while Android/Vulkan compatibility is audited.
   workflow_dispatch:
 
 permissions:
