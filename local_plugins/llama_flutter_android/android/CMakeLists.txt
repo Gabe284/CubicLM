@@ -63,6 +63,15 @@ if(TARGET ggml-vulkan)
         "${vulkan_headers_SOURCE_DIR}/include"
         "${spirv_headers_SOURCE_DIR}/include"
     )
+    # Android's NDK Vulkan stub exports Vulkan 1.0 entry points plus the
+    # KHR properties2 extension, but not every promoted Vulkan 1.1 symbol.
+    # Use the KHR alias guaranteed by Android's Vulkan loader instead of
+    # directly linking vkGetPhysicalDeviceFeatures2.
+    if(ANDROID)
+        target_compile_definitions(ggml-vulkan PRIVATE
+            vkGetPhysicalDeviceFeatures2=vkGetPhysicalDeviceFeatures2KHR
+        )
+    endif()
 endif()
 
 # ggml-base is linked as a standalone shared object and contains C++ sources.
