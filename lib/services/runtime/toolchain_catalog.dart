@@ -11,9 +11,9 @@
 /// present, otherwise from a `<file>.sha256` sidecar next to the bundle.
 library;
 
-/// Toolchain stack ids. `core` (Ubuntu rootfs + node/npm/git) is required
-/// by every other stack.
-enum ToolchainId { core, node, python, android, cpp, php }
+/// Toolchain stack ids. `core` is the existing Ubuntu runtime. Debian is a
+/// separate environment choice and must not share/overwrite Ubuntu's rootfs.
+enum ToolchainId { core, debian, node, python, android, cpp, php }
 
 /// Per-stack install state.
 enum ToolchainState {
@@ -94,6 +94,22 @@ class ToolchainCatalog {
           ],
           needsCore: false,
           downloadNote: 'One-time download, then everything runs on-device.',
+        ),
+        ToolchainStack(
+          id: ToolchainId.debian,
+          title: 'Debian environment',
+          subtitle: 'Separate Debian ARM64 userspace; can coexist with Ubuntu',
+          bundles: [
+            RuntimeBundle(
+              fileName: 'cubiclm-debian-arm64.tar.gz',
+              version: 'debian-bookworm-arm64',
+              title: 'Debian rootfs',
+            ),
+          ],
+          needsCore: false,
+          downloadNote: 'Separate environment; installing or removing it must not alter Ubuntu.',
+          available: false,
+          unavailableReason: 'The Debian ARM64 rootfs bundle is not published yet. The shared PRoot runtime must be separated from the Ubuntu rootfs before Debian can install independently.',
         ),
         ToolchainStack(
           id: ToolchainId.node,
