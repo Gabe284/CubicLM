@@ -22,7 +22,7 @@ on:
       - 'assets/**'
       - 'android/**'
       - 'local_plugins/**'
-      - '.github/workflows/android-gpu-test.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
