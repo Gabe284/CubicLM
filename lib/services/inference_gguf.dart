@@ -190,15 +190,18 @@ class GgufEngine {
     required int fileBytes,
     required int kvBytes,
     required int availBytes,
+    bool allowLowTierOffload = false,
   }) {
     if (!vulkanSupported) return 0;
     if (availBytes > 0 && fileBytes > 0) {
       final fullNeed = ((fileBytes + kvBytes) * 1.2).round();
       if (fullNeed <= availBytes) return 99;
     }
-    // Respect the backend's RAM-aware recommendation for Vulkan devices,
-    // including Mali GPUs whose model number is not in the old Adreno tier map.
-    if (recommendedLayers > 0) return recommendedLayers;
+    // Respect backend recommendations for high-tier GPUs, plus Mali devices
+    // explicitly approved by the platform layer when shared RAM permits it.
+    if ((gpuNum >= 650 || allowLowTierOffload) && recommendedLayers > 0) {
+      return recommendedLayers;
+    }
     return 0;
   }
 
@@ -447,6 +450,7 @@ class GgufEngine {
         fileBytes: fileBytes,
         kvBytes: kvBytes,
         availBytes: gpu.freeRamBytes,
+        allowLowTierOffload: gpu.gpuName.toLowerCase().contains('mali'),
       );
       print('[Inference] Auto offload → $gpuLayers layers '
           '(file=${fileBytes ~/ 1024 ~/ 1024}MB, '
