@@ -75,12 +75,17 @@ class RuntimeInstaller extends GetxService {
   static const _channel = MethodChannel('com.cubiclm.app/runtime');
   static const _kInstalledKey = 'runtime_installed_stacks_v1';
   static const _kBaseUrlKey = 'runtime_base_url';
+  static const _kEnvironmentKey = 'runtime_active_environment_v1';
 
   /// Observable status per stack id.
   final statuses = <ToolchainId, StackStatus>{}.obs;
 
   /// Overall busy flag (one install at a time, like the CLI queue).
   final busy = false.obs;
+
+  /// Active Linux rootfs for terminal/agent execution. Environments have
+  /// independent rootfs directories and readiness markers.
+  final activeEnvironment = 'ubuntu'.obs;
 
   String _root = '';
   bool _cancelRequested = false;
@@ -89,7 +94,20 @@ class RuntimeInstaller extends GetxService {
     for (final s in ToolchainCatalog.stacks()) {
       statuses[s.id] = const StackStatus();
     }
+    final savedEnvironment = _hive?.getSetting<String>(_kEnvironmentKey);
+    if (savedEnvironment == 'ubuntu' || savedEnvironment == 'debian') {
+      activeEnvironment.value = savedEnvironment!;
+    }
     await refresh();
+    if (!await _environmentReady(activeEnvironment.value)) {
+      if (await _environmentReady('ubuntu')) {
+        activeEnvironment.value = 'ubuntu';
+      } else if (await _environmentReady('debian')) {
+        activeEnvironment.value = 'debian';
+      } else {
+        activeEnvironment.value = 'ubuntu';
+      }
+    }
     await _reportRuntimeRoot();
     return this;
   }
@@ -155,6 +173,34 @@ class RuntimeInstaller extends GetxService {
     } catch (_) {}
   }
 
+  Future<bool> _environmentReady(String environment) async {
+    try {
+      final marker = environment == 'ubuntu' ? '.ready-core' : '.ready-debian';
+      if (environment != 'ubuntu' && environment != 'debian') return false;
+      return File('$_root/$marker').existsSync() &&
+          File('$_root/$environment/usr/bin/bash').existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String?> setActiveEnvironment(String environment) async {
+    if (environment != 'ubuntu' && environment != 'debian') {
+      return 'Unsupported Linux environment.';
+    }
+    if (!await _environmentReady(environment)) {
+      return '${environment == 'ubuntu' ? 'Ubuntu' : 'Debian'} is not installed or is incomplete.';
+    }
+    activeEnvironment.value = environment;
+    try {
+      await _hive?.setSetting(_kEnvironmentKey, environment);
+    } catch (_) {}
+    await _reportRuntimeRoot();
+    await _refreshSandbox();
+    AppLogService.trailAction('runtime active environment set to $environment');
+    return null;
+  }
+
   Future<bool> _isStackReady(ToolchainId id) async {
     try {
       if (!File(_markerFor(id)).existsSync()) return false;
@@ -162,7 +208,7 @@ class RuntimeInstaller extends GetxService {
         return File('$_root/ubuntu/usr/bin/bash').existsSync();
       }
       if (id == ToolchainId.debian) {
-        return File('$_root/debian/usr/bin/bash').existsSync();
+        return await _environmentReady('debian');
       }
       return true;
     } catch (_) {
@@ -666,7 +712,10 @@ class RuntimeInstaller extends GetxService {
     try {
       if (kIsWeb) return;
       final root = await _runtimeRoot;
-      await _channel.invokeMethod('setRuntimeRoot', {'path': root}).timeout(
+      await _channel.invokeMethod('setRuntimeRoot', {
+        'path': root,
+        'environment': activeEnvironment.value,
+      }).timeout(
             const Duration(seconds: 5),
           );
     } on MissingPluginException {
