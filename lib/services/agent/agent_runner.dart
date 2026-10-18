@@ -187,9 +187,6 @@ class AgentRunner extends GetxService {
     final executed = <ToolExecutionRecord>[];
     final sub = registry.executions.listen(executed.add);
     String reply;
-    // Cloud providers dispatch tools internally; expose the same jailed
-    // project directory used by the local agent loop for this call only.
-    registry.cloudWorkspacePath = workspacePath;
     try {
       final system = _cloudSystem(config);
       final messages = system == null
@@ -198,13 +195,14 @@ class AgentRunner extends GetxService {
               {'role': 'system', 'content': system},
               ...context,
             ];
-      reply = await cloud.sendMessage(messages: messages);
+      reply = await runZoned<Future<String>>(
+        () => cloud.sendMessage(messages: messages),
+        zoneValues: {#cubiclmWorkspacePath: workspacePath},
+      );
     } catch (e) {
       await sub.cancel();
       yield AgentEvent.error('Cloud call failed: $e');
       return;
-    } finally {
-      registry.cloudWorkspacePath = '';
     }
     await sub.cancel();
 
