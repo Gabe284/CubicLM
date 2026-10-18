@@ -15161,6 +15161,37 @@ void ggml_backend_vk_get_device_description(int device, char * description, size
     ggml_vk_get_device_description(dev_idx, description, description_size);
 }
 
+bool ggml_backend_vk_get_device_info(int device, uint32_t * api_version, int * device_type) {
+    ggml_vk_instance_init();
+
+    if (device < 0 || device >= (int) vk_instance.device_indices.size()) {
+        return false;
+    }
+
+    const int physical_device_index = vk_instance.device_indices[device];
+    const std::vector<vk::PhysicalDevice> devices = vk_instance.instance.enumeratePhysicalDevices();
+    if (physical_device_index < 0 || physical_device_index >= (int) devices.size()) {
+        return false;
+    }
+
+    vk::PhysicalDeviceProperties props = {};
+    devices[physical_device_index].getProperties(&props);
+
+    if (api_version != nullptr) {
+        *api_version = props.apiVersion;
+    }
+    if (device_type != nullptr) {
+        *device_type = static_cast<int>(props.deviceType);
+    }
+
+    // llama.cpp's Vulkan backend requires Vulkan 1.2 and actual integrated
+    // or discrete hardware. Reject CPU/software Vulkan implementations such
+    // as llvmpipe/lavapipe and SwiftShader instead of reporting GPU support.
+    return props.apiVersion >= VK_API_VERSION_1_2 &&
+        (props.deviceType == vk::PhysicalDeviceType::eIntegratedGpu ||
+         props.deviceType == vk::PhysicalDeviceType::eDiscreteGpu);
+}
+
 void ggml_backend_vk_get_device_memory(int device, size_t * free, size_t * total) {
     GGML_ASSERT(device < (int) vk_instance.device_indices.size());
     GGML_ASSERT(device < (int) vk_instance.device_supports_membudget.size());
