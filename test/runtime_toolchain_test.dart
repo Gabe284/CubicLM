@@ -7,7 +7,7 @@ void main() {
   group('ToolchainCatalog', () {
     test('stacks list core first with six stacks', () {
       final stacks = ToolchainCatalog.stacks();
-      expect(stacks.length, 6);
+      expect(stacks.length, 7);
       expect(stacks.first.id, ToolchainId.core);
       expect(stacks.first.needsCore, isFalse);
       for (final s in stacks.skip(1)) {
@@ -16,8 +16,19 @@ void main() {
       }
     });
 
+    test('Debian is listed separately and cannot overwrite Ubuntu before bundle exists', () {
+      final ubuntu = ToolchainCatalog.stackOf(ToolchainId.core);
+      final debian = ToolchainCatalog.stackOf(ToolchainId.debian);
+      expect(ubuntu.title, contains('Ubuntu'));
+      expect(debian.title, contains('Debian'));
+      expect(debian.needsCore, isFalse);
+      expect(debian.available, isFalse);
+      expect(debian.bundles.single.fileName, 'cubiclm-debian-arm64.tar.gz');
+      expect(debian.unavailableReason, contains('shared PRoot runtime'));
+    });
+
     test('unpublished stacks explain their concrete blocker', () {
-      for (final id in [ToolchainId.android, ToolchainId.cpp, ToolchainId.php]) {
+      for (final id in [ToolchainId.debian, ToolchainId.android, ToolchainId.cpp, ToolchainId.php]) {
         final stack = ToolchainCatalog.stackOf(id);
         expect(stack.available, isFalse);
         expect(stack.unavailableReason.trim(), isNotEmpty);
@@ -59,6 +70,7 @@ void main() {
         () {
       expect(RuntimeInstaller.extractSubdirFor(ToolchainId.core), '');
       for (final id in [
+        ToolchainId.debian,
         ToolchainId.node,
         ToolchainId.python,
         ToolchainId.android,
