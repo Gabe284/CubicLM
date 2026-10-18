@@ -433,7 +433,7 @@ class RuntimeInstaller extends GetxService {
     try {
       final etc = Directory('$root/$environment/etc');
       await etc.create(recursive: true);
-      await File('\${etc.path}/resolv.conf').writeAsString(_resolvConf, flush: true);
+      await File('${etc.path}/resolv.conf').writeAsString(_resolvConf, flush: true);
     } catch (e) {
       return 'Could not write $environment guest DNS config: $e';
     }
@@ -441,7 +441,7 @@ class RuntimeInstaller extends GetxService {
       final chmod = await Process.run('chmod', ['0755', proot.path], runInShell: false)
           .timeout(const Duration(seconds: 10));
       if (chmod.exitCode != 0 && !proot.canExecute()) {
-        return 'Could not make the PRoot binary executable: \${chmod.stderr}';
+        return 'Could not make the PRoot binary executable: ${chmod.stderr}';
       }
     } catch (e) {
       if (!proot.canExecute()) {
