@@ -5,12 +5,14 @@ import 'package:cubiclm/services/runtime/toolchain_catalog.dart';
 
 void main() {
   group('ToolchainCatalog', () {
-    test('stacks list core first with six stacks', () {
+    test('stacks list core first with seven stacks', () {
       final stacks = ToolchainCatalog.stacks();
       expect(stacks.length, 7);
       expect(stacks.first.id, ToolchainId.core);
       expect(stacks.first.needsCore, isFalse);
-      for (final s in stacks.skip(1)) {
+      expect(stacks[1].id, ToolchainId.debian);
+      expect(stacks[1].needsCore, isFalse);
+      for (final s in stacks.skip(2)) {
         expect(s.needsCore, isTrue);
         expect(s.bundles, isNotEmpty);
       }
@@ -70,7 +72,6 @@ void main() {
         () {
       expect(RuntimeInstaller.extractSubdirFor(ToolchainId.core), '');
       for (final id in [
-        ToolchainId.debian,
         ToolchainId.node,
         ToolchainId.python,
         ToolchainId.android,
