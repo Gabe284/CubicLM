@@ -92,11 +92,14 @@ Future<int> getRemoteFileSize(String url, {String? authToken}) async {
           int.tryParse(response.headers.value('x-linked-size') ?? '') ?? 0;
       if (linkedSize > 0) return linkedSize;
 
-      // Some servers ignore Range. Read the headers only, never buffer a
-      // potentially multi-gigabyte body just to obtain Content-Length.
-      final length = response.headers.value(Headers.contentLengthHeader);
-      final size = int.tryParse(length ?? '') ?? 0;
-      if (size > 0) return size;
+      // Some servers ignore Range and return 200 with the full file length.
+      // A 206 response's Content-Length is only the returned range, not the
+      // complete file, so never mistake a one-byte response for the model size.
+      if (response.statusCode != 206) {
+        final length = response.headers.value(Headers.contentLengthHeader);
+        final size = int.tryParse(length ?? '') ?? 0;
+        if (size > 0) return size;
+      }
     } finally {
       final body = response.data;
       if (body != null) {
