@@ -29,8 +29,26 @@ set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Disable tests")
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Disable examples")
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Disable server")
 
+# Vulkan-Headers provides the C++ Vulkan-Hpp wrapper omitted from Android NDK headers.
+# Pin a known release and use it only as headers; Vulkan::Vulkan still links the NDK loader.
+include(FetchContent)
+FetchContent_Declare(
+    vulkan_headers
+    GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+    GIT_TAG v1.4.321
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(vulkan_headers)
+if(NOT vulkan_headers_POPULATED)
+    FetchContent_Populate(vulkan_headers)
+endif()
+
 # Add llama.cpp
 add_subdirectory(src/main/cpp/llama.cpp)
+
+if(TARGET ggml-vulkan)
+    target_include_directories(ggml-vulkan PRIVATE "${vulkan_headers_SOURCE_DIR}/include")
+endif()
 
 # ggml-base is linked as a standalone shared object and contains C++ sources.
 # On Android/NDK it must explicitly link libc++ or symbols such as operator new
