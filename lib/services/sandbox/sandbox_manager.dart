@@ -1,6 +1,6 @@
 /// CubicLM Sandbox — backend selector for all command execution.
 ///
-/// Prefers [ProotBackend] when the native Ubuntu runtime is installed,
+/// Prefers [ProotBackend] when the selected native Linux environment is installed,
 /// otherwise [HostBackend]. [RunCommandTool] and [TerminalService] call
 /// [run] so isolation arrives automatically once PRoot ships — no caller
 /// changes needed.
@@ -32,7 +32,7 @@ class SandboxManager extends GetxService {
         await proot.isAvailable() ? proot.name : host.name;
   }
 
-  /// True when commands run inside isolated Ubuntu.
+  /// True when commands run inside the selected isolated Linux environment.
   Future<bool> get isIsolated async => await proot.isAvailable();
 
   /// Run [command] on the best available backend. Never throws.
