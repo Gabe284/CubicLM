@@ -112,6 +112,13 @@ class RuntimeInstaller extends GetxService {
   Future<Directory> get _rootfsDir async =>
       Directory('${await _runtimeRoot}/ubuntu');
 
+  Future<Directory> _environmentDir(String environment) async {
+    if (environment != 'ubuntu' && environment != 'debian') {
+      throw ArgumentError.value(environment, 'environment', 'Unsupported Linux environment');
+    }
+    return Directory('${await _runtimeRoot}/$environment');
+  }
+
   String _markerFor(ToolchainId id) => '$_root/.ready-${id.name}';
 
   String get baseUrl =>
@@ -153,6 +160,9 @@ class RuntimeInstaller extends GetxService {
       if (!File(_markerFor(id)).existsSync()) return false;
       if (id == ToolchainId.core) {
         return File('$_root/ubuntu/usr/bin/bash').existsSync();
+      }
+      if (id == ToolchainId.debian) {
+        return File('$_root/debian/usr/bin/bash').existsSync();
       }
       return true;
     } catch (_) {
@@ -281,8 +291,17 @@ class RuntimeInstaller extends GetxService {
     try {
       await _runtimeRoot;
       if (id == ToolchainId.core) {
+        // Legacy Ubuntu core bundles contain shared PRoot binaries and
+        // overlays; preserve the existing full-core removal semantics.
         final dir = Directory(_root);
         if (await dir.exists()) await dir.delete(recursive: true);
+      } else if (id == ToolchainId.debian) {
+        // Debian is an independent rootfs. Do not delete the runtime root,
+        // Ubuntu rootfs, shared PRoot files, caches, or Ubuntu overlays.
+        final dir = await _environmentDir('debian');
+        if (await dir.exists()) await dir.delete(recursive: true);
+        final marker = File(_markerFor(id));
+        if (await marker.exists()) await marker.delete();
       } else {
         final m = File(_markerFor(id));
         if (await m.exists()) await m.delete();
@@ -302,12 +321,12 @@ class RuntimeInstaller extends GetxService {
     } catch (_) {}
   }
 
-  /// Extract destination per stack. Core lays down the whole tree —
-  /// `ubuntu/` (rootfs) + `bin/proot` (Android PRoot binary, which must
-  /// live OUTSIDE the rootfs and can never arrive via a rootfs-relative
-  /// extract). Overlays merge into the rootfs. Pure for unit tests.
+  /// Extract destination per stack. Environment bundles (Ubuntu Core and
+  /// Debian) lay down a complete runtime-relative tree: their own rootfs
+  /// plus shared PRoot binaries outside the rootfs. Toolchain overlays
+  /// continue to merge into the legacy Ubuntu rootfs. Pure for unit tests.
   static String extractSubdirFor(ToolchainId id) =>
-      id == ToolchainId.core ? '' : 'ubuntu';
+      id == ToolchainId.core || id == ToolchainId.debian ? '' : 'ubuntu';
 
   /// Guest DNS: ubuntu-base ships no resolv.conf, so without this every
   /// network call inside proot (npm, apt, git) fails.
@@ -342,8 +361,9 @@ class RuntimeInstaller extends GetxService {
     if (exErr != null) return exErr;
     // 4. Core post-steps: guest DNS + proot exec bit (best effort —
     // tar usually preserves modes, toybox chmod is the backstop).
-    if (id == ToolchainId.core) {
-      final finErr = await _finalizeCore(root);
+    if (id == ToolchainId.core || id == ToolchainId.debian) {
+      final environment = id == ToolchainId.core ? 'ubuntu' : 'debian';
+      final finErr = await _finalizeEnvironment(root, environment);
       if (finErr != null) return finErr;
     }
     return null;
@@ -351,14 +371,14 @@ class RuntimeInstaller extends GetxService {
 
   /// Write resolv.conf + ensure `bin/proot` is executable. Returns an
   /// error string, or null on success. Never throws.
-  Future<String?> _finalizeCore(String root) async {
+  Future<String?> _finalizeEnvironment(String root, String environment) async {
     try {
-      final etc = Directory('$root/ubuntu/etc');
+      final etc = Directory('$root/$environment/etc');
       await etc.create(recursive: true);
       await File('${etc.path}/resolv.conf')
           .writeAsString(_resolvConf, flush: true);
     } catch (e) {
-      return 'Could not write guest DNS config: $e';
+      return 'Could not write $environment guest DNS config: $e';
     }
     try {
       final proot = File('$root/bin/proot');
