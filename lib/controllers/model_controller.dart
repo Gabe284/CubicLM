@@ -66,6 +66,11 @@ class ModelController extends GetxController {
   final downloadedFiles = <String>[].obs;
   final isImporting = false.obs;
   final customModels = <AiModel>[].obs;
+  /// Actual remote byte sizes, kept separate from [fileSizes], which records
+  /// sizes measured on this device.
+  final remoteFileSizes = <String, int>{}.obs;
+  final Map<String, Future<void>> _remoteSizeLookups = {};
+  final Set<String> _remoteSizeLookupAttempted = {};
   final fileSizes = <String, int>{}.obs;
   final modelScope = 'dashboard'.obs;
   final localFilter = ''.obs;
