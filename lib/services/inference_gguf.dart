@@ -129,7 +129,7 @@ class GgufEngine {
     // batch-size caps, and Tensor+Gemma's known single-thread workaround below
     // is reapplied after this generic clamp.
     if (availGb < 2.5) return 2;
-    final cap = 3;
+    const cap = 3;
     return threads <= cap ? threads : cap;
   }
 
