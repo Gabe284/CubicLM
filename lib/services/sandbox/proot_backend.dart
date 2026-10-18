@@ -1,27 +1,26 @@
-/// CubicLM Sandbox — PRoot Ubuntu backend (native work pending).
+/// CubicLM Sandbox — PRoot Linux environment backend.
 ///
-/// NATIVE CONTRACT (for the future Android implementation — mirrors
-/// Mobile-Harness pocket_spawn.c):
+/// Native Android implementation accepts an allowlisted environment name
+/// (`ubuntu` or `debian`) through the runtime channel:
 /// - MethodChannel `com.cubiclm.app/proot` with methods:
-///   - `ping` → bool (true when the Ubuntu rootfs is installed + runnable)
+///   - `ping` → bool (true when the selected rootfs is installed + runnable)
 ///   - `exec` {command: String, cwd: String, timeoutMs: int} →
 ///     {stdout: String, stderr: String, exitCode: int}
 /// - Native side: JNI → fork/exec proot with the rootfs at
-///   `<filesDir>/runtime/ubuntu`, guest cwd `/workspace/<slug>`,
+///   `<app-support>/runtime/<environment>`, guest cwd `/workspace/<slug>`,
 ///   bindings for /dev, /proc, /sys, and the project workspace.
-/// - Bundles (core Ubuntu 20.04 ARM64 + node/npm/git; opt-in python,
-///   android-sdk, cpp) download on demand like the reference app.
-///
-/// Until that native code ships, [isAvailable] returns false and the
-/// [SandboxManager] transparently falls back to [HostBackend]. Callers
-/// MUST go through the manager so the switch is automatic.
+/// - Ubuntu and Debian environment bundles install into separate rootfs
+///   directories; toolchain overlays currently target Ubuntu only.
+/// - The Debian catalog entry stays disabled until its complete bundle is
+///   published and verified. Callers should use [SandboxManager] so fallback
+///   and readiness checks remain consistent.
 library;
 
 import 'package:flutter/services.dart';
 
 import 'sandbox_backend.dart';
 
-/// PRoot Ubuntu backend. Unavailable until the native runtime ships.
+/// PRoot backend for the selected Linux environment.
 class ProotBackend implements SandboxBackend {
   static const MethodChannel _channel =
       MethodChannel('com.cubiclm.app/proot');
