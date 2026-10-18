@@ -123,12 +123,13 @@ class GgufEngine {
     required double availGb,
   }) {
     if (availGb <= 0 || availGb >= 3.0) return threads;
-    // Below 1.5GB every thread's compute buffer matters: single thread.
-    if (availGb < 1.5) return threads <= 1 ? threads : 1;
-    // Below 2.5GB a second/third thread's buffers + a hot phone after
-    // turn 1 push prefill over the edge (observed turn-2 death at
-    // 2.1GB/3 threads): cap at 2.
-    final cap = availGb < 2.5 ? 2 : 3;
+    // Keep the batch small under pressure, but use two CPU workers as the
+    // minimum low-RAM profile to avoid single-thread prompt-processing stalls.
+    // This may raise peak RSS; models still retain the existing context and
+    // batch-size caps, and Tensor+Gemma's known single-thread workaround below
+    // is reapplied after this generic clamp.
+    if (availGb < 2.5) return 2;
+    final cap = 3;
     return threads <= cap ? threads : cap;
   }
 
@@ -199,7 +200,9 @@ class GgufEngine {
       final fullNeed = ((fileBytes + kvBytes) * 1.2).round();
       if (fullNeed <= availBytes) return 99;
     }
-    if (gpuNum >= 650 && recommendedLayers > 0) return recommendedLayers;
+    // Respect the backend's RAM-aware recommendation for Vulkan devices,
+    // including Mali GPUs whose model number is not in the old Adreno tier map.
+    if (recommendedLayers > 0) return recommendedLayers;
     return 0;
   }
 
@@ -536,6 +539,11 @@ class GgufEngine {
           '[Inference] Low-RAM load (${availGb.toStringAsFixed(1)}GB free) — threads $threads → $clampedThreads');
     }
     threads = clampedThreads;
+    // Preserve the known Tensor+Gemma correctness workaround after the generic
+    // two-thread low-RAM floor above.
+    if (isTensorSoC && modelName.contains('gemma')) {
+      threads = 1;
+    }
     // Large-model mode: cap at 2 threads on top — each extra thread
     // grows the native compute buffer that big models can't spare.
     if (largeMode && threads > 2) {
