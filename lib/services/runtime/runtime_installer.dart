@@ -244,6 +244,10 @@ class RuntimeInstaller extends GetxService {
       }
     }
     final stack = ToolchainCatalog.stackOf(id);
+    if (id != ToolchainId.core && id != ToolchainId.debian &&
+        activeEnvironment.value != 'ubuntu') {
+      warnings.add('This toolchain overlay currently targets Ubuntu. Switch the active environment to Ubuntu before installing it.');
+    }
     if (stack.needsCore && !await isCoreReady) {
       warnings.add('Install the Core Ubuntu runtime first.');
     }
