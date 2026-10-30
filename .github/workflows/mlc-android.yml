@@ -24,6 +24,7 @@ on:
     paths:
       - ".github/workflows/mlc-android.yml"
       - "scripts/mlc/**"
+      - "tools/nnapi-probe/**"
 
 permissions:
   contents: read
@@ -73,9 +74,20 @@ jobs:
 
       - name: Set up Android SDK and NDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android NDK
         run: sdkmanager "ndk;${ANDROID_NDK_VERSION}" "cmake;3.22.1"
+
+      - name: Set up Gradle for NNAPI diagnostic
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build NNAPI diagnostic APK
+        working-directory: tools/nnapi-probe
+        run: gradle --no-daemon --stacktrace assembleDebug
 
       - name: Configure Android cross-compilation environment
         run: |
@@ -143,13 +155,16 @@ jobs:
       - name: Verify deliverables
         run: |
           APK="mlc-llm/android/MLCChat/app/build/outputs/apk/debug/app-debug.apk"
+          NNAPI_APK="tools/nnapi-probe/app/build/outputs/apk/debug/app-debug.apk"
           RUNTIME="mlc-llm/android/MLCChat/dist/lib/mlc4j/output/arm64-v8a/libtvm4j_runtime_packed.so"
           test -s "$APK"
+          test -s "$NNAPI_APK"
           test -s "$RUNTIME"
-          file "$APK" "$RUNTIME"
+          file "$APK" "$NNAPI_APK" "$RUNTIME"
           unzip -l "$APK" | grep -E 'lib/arm64-v8a/.*\.so' | head -30
           mkdir -p build-output
           cp "$APK" build-output/MLCChat-arm64-debug.apk
+          cp "$NNAPI_APK" build-output/NNAPIProbe-arm64-debug.apk
           cp mlc-source-commit.txt build-output/
           printf 'Model repository: %s\nModel ID: %s\nMLC ref: %s\n' "$MODEL_REPO" "$MODEL_ID" "$MLC_REF" > build-output/build-info.txt
           cd mlc-llm/android/MLCChat
