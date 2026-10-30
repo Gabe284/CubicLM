@@ -23,6 +23,7 @@ on:
       - feature/mlc-llm-android-spike
     paths:
       - ".github/workflows/mlc-android.yml"
+      - "scripts/mlc/**"
 
 permissions:
   contents: read
@@ -63,8 +64,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
-          cache: pip
+          # MLC's published nightly wheels are more reliably available for 3.11.
+          # Do not enable setup-python's pip cache without a requirements/pyproject file.
+          python-version: "3.11"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
