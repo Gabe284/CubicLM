@@ -1,4 +1,4 @@
-#include <NeuralNetworks.h>
+#include <android/NeuralNetworks.h>
 #include <jni.h>
 
 #include <cmath>
