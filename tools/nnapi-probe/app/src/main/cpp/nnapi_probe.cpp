@@ -85,11 +85,10 @@ struct AddModel {
     }
 };
 
-std::string runOnDevice(const ANeuralNetworksModel* model,
-                        const ANeuralNetworksDevice* device,
-                        const std::string& name) {
+std::string runOnDevice(ANeuralNetworksModel* model,
+                        ANeuralNetworksDevice* device) {
     std::ostringstream out;
-    const ANeuralNetworksDevice* devices[] = {device};
+    ANeuralNetworksDevice* devices[] = {device};
     bool supported[] = {false};
 
     int status = ANeuralNetworksModel_getSupportedOperationsForDevices(
@@ -208,7 +207,7 @@ Java_dev_gabe284_nnapiprobe_MainActivity_nativeProbe(JNIEnv* env, jclass) {
     uint32_t acceleratorPassCount = 0;
 
     for (uint32_t i = 0; i < count; ++i) {
-        const ANeuralNetworksDevice* device = nullptr;
+        ANeuralNetworksDevice* device = nullptr;
         status = ANeuralNetworks_getDevice(i, &device);
         out << "Device " << i << ": ";
         if (status != ANEURALNETWORKS_NO_ERROR || !device) {
@@ -233,7 +232,7 @@ Java_dev_gabe284_nnapiprobe_MainActivity_nativeProbe(JNIEnv* env, jclass) {
             << "  feature level: " << featureLevel << "\n";
 
         if (type == ANEURALNETWORKS_DEVICE_ACCELERATOR) ++acceleratorCount;
-        const std::string deviceReport = runOnDevice(model.model, device, deviceName);
+        const std::string deviceReport = runOnDevice(model.model, device);
         out << deviceReport;
         if (type == ANEURALNETWORKS_DEVICE_ACCELERATOR &&
             deviceReport.find("explicit-device execution: PASS") != std::string::npos) {
