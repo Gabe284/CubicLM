@@ -51,3 +51,19 @@ Official references:
 ## Current status of this branch
 
 This spike adds documentation and a guarded packaging helper only. It does **not** add the MLC runtime to CubicLM, change the active inference engine, or claim LFM2.5 support. Those changes would be premature until the compatibility gate above passes.
+
+
+## GitHub Actions build
+
+The branch now includes `.github/workflows/mlc-android.yml`. It builds the official MLC Chat Android app and its generated ARM64 `mlc4j` runtime on a Linux GitHub Actions runner. The workflow uses the official MLC nightly CPU compiler package on the host, Android NDK 27.0.11718014, JDK 17, and the selected MLC source revision.
+
+- The default smoke-test model is `mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC`, a pre-converted MLC model with a supported Qwen2 architecture. It is deliberately small for the 4 GB target device.
+- Model weights are not bundled in the APK; MLC Chat downloads them when selected.
+- Outputs are uploaded as a GitHub Actions artifact: `MLCChat-arm64-debug.apk`, `mlc4j-arm64-runtime.tar.gz`, and build provenance.
+- The workflow can also be manually dispatched with a different pre-converted MLC Hugging Face model and MLC source ref.
+- This is a standalone MLC Chat validation APK, not yet a CubicLM-integrated runtime plugin.
+- The default build is an ARM64 package. Actual Mali/OpenCL acceleration, memory use, stability, and throughput still require testing on the physical Moto G 2025.
+
+To run it manually, open **Actions → MLC Android ARM64 package → Run workflow** on this branch. Download the artifact named `mlc-android-arm64-<run number>` after the job succeeds.
+
+The user's existing LFM2.5-230M GGUF remains a separate compatibility gate. Do not pass that GGUF directly to this workflow: MLC requires a model converted to its own format, and LFM2.5 architecture support has not yet been verified.
