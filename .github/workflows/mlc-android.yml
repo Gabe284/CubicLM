@@ -1,0 +1,162 @@
+name: MLC Android ARM64 package
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_repo:
+        description: "MLC-converted Hugging Face model repository (without HF://)"
+        required: true
+        default: "mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC"
+        type: string
+      model_id:
+        description: "Model identifier shown inside MLC Chat"
+        required: true
+        default: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC"
+        type: string
+      mlc_ref:
+        description: "mlc-ai/mlc-llm branch, tag, or commit"
+        required: true
+        default: "main"
+        type: string
+  push:
+    branches:
+      - feature/mlc-llm-android-spike
+    paths:
+      - ".github/workflows/mlc-android.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mlc-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-android-arm64:
+    name: Build MLC Chat APK and ARM64 runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      MODEL_REPO: ${{ inputs.model_repo || 'mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC' }}
+      MODEL_ID: ${{ inputs.model_id || 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC' }}
+      MLC_REF: ${{ inputs.mlc_ref || 'main' }}
+      ANDROID_NDK_VERSION: 27.0.11718014
+      MLC_LLM_SOURCE_DIR: ${{ github.workspace }}/mlc-llm
+      TVM_SOURCE_DIR: ${{ github.workspace }}/mlc-llm/3rdparty/tvm
+
+    steps:
+      - name: Checkout CubicLM integration branch
+        uses: actions/checkout@v4
+
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git-lfs cmake ninja-build
+          git lfs install
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;${ANDROID_NDK_VERSION}" "cmake;3.22.1"
+
+      - name: Configure Android cross-compilation environment
+        run: |
+          echo "ANDROID_NDK=${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "TVM_NDK_CC=${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "JAVA_HOME=${JAVA_HOME}" >> "$GITHUB_ENV"
+          test -f "${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}/build/cmake/android.toolchain.cmake"
+
+      - name: Install official MLC nightly compiler package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cpu mlc-ai-nightly-cpu
+          mlc_llm --help
+
+      - name: Checkout MLC LLM source and submodules
+        run: |
+          git clone --recursive --depth 1 --branch "$MLC_REF" https://github.com/mlc-ai/mlc-llm.git "$MLC_LLM_SOURCE_DIR"
+          test -f "$TVM_SOURCE_DIR/CMakeLists.txt"
+          git -C "$MLC_LLM_SOURCE_DIR" rev-parse HEAD | tee mlc-source-commit.txt
+
+      - name: Generate Android model package configuration
+        env:
+          MODEL_REPO: ${{ env.MODEL_REPO }}
+          MODEL_ID: ${{ env.MODEL_ID }}
+        run: |
+          python - <<'PY'
+          import json, os
+          repo = os.environ["MODEL_REPO"].strip()
+          model_id = os.environ["MODEL_ID"].strip()
+          if not repo or repo.startswith("HF://") or "/" not in repo:
+              raise SystemExit("MODEL_REPO must be owner/repository without the HF:// prefix")
+          if not model_id:
+              raise SystemExit("MODEL_ID must not be empty")
+          config = {
+              "device": "android",
+              "model_list": [{
+                  "model": "HF://" + repo,
+                  "model_id": model_id,
+                  "estimated_vram_bytes": 1200000000,
+                  "bundle_weight": False,
+                  "overrides": {
+                      "context_window_size": 2048,
+                      "prefill_chunk_size": 128
+                  }
+              }]
+          }
+          path = os.path.join(os.environ["MLC_LLM_SOURCE_DIR"], "android", "MLCChat", "mlc-package-config.json")
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump(config, f, indent=2)
+              f.write("\\n")
+          print(json.dumps(config, indent=2))
+          PY
+
+      - name: Build MLC Android runtime and model library
+        run: |
+          chmod +x scripts/mlc/build_android_package.sh
+          scripts/mlc/build_android_package.sh
+
+      - name: Build standalone MLC Chat debug APK
+        working-directory: mlc-llm/android/MLCChat
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Verify deliverables
+        run: |
+          APK="mlc-llm/android/MLCChat/app/build/outputs/apk/debug/app-debug.apk"
+          RUNTIME="mlc-llm/android/MLCChat/dist/lib/mlc4j/output/arm64-v8a/libtvm4j_runtime_packed.so"
+          test -s "$APK"
+          test -s "$RUNTIME"
+          file "$APK" "$RUNTIME"
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/.*\\.so' | head -30
+          mkdir -p build-output
+          cp "$APK" build-output/MLCChat-arm64-debug.apk
+          cp mlc-source-commit.txt build-output/
+          printf 'Model repository: %s\\nModel ID: %s\\nMLC ref: %s\\n' "$MODEL_REPO" "$MODEL_ID" "$MLC_REF" > build-output/build-info.txt
+          cd mlc-llm/android/MLCChat
+          tar -czf "${GITHUB_WORKSPACE}/build-output/mlc4j-arm64-runtime.tar.gz" dist/lib/mlc4j
+
+      - name: Upload APK and runtime artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlc-android-arm64-${{ github.run_number }}
+          path: build-output/*
+          if-no-files-found: error
+          retention-days: 14
