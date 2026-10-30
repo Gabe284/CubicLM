@@ -28,8 +28,8 @@ MLC_CHAT_DIR="${MLC_CHAT_DIR:-$MLC_LLM_SOURCE_DIR/android/MLCChat}"
 [[ -d "$MLC_CHAT_DIR" ]] || die "MLC Chat project not found: $MLC_CHAT_DIR"
 [[ -f "$MLC_CHAT_DIR/mlc-package-config.json" ]] ||
   die "Missing $MLC_CHAT_DIR/mlc-package-config.json; configure the model list first."
-command -v mlc_llm >/dev/null 2>&1 ||
-  die "mlc_llm CLI is not on PATH. Install the Python package in an isolated build environment."
+python3 -c "import mlc_llm" ||
+  die "MLC LLM Python package is not importable in this environment."
 command -v python3 >/dev/null 2>&1 ||
   die "python3 is required for the post-build artifact checks."
 
@@ -59,8 +59,8 @@ PY
 
 export MLC_LLM_SOURCE_DIR
 cd "$MLC_CHAT_DIR"
-note "Running mlc_llm package (this can take a long time and requires host build dependencies)"
-mlc_llm package
+note "Running MLC package through its Python module entry point (this can take a long time)"
+python3 -m mlc_llm package
 
 DIST="$MLC_CHAT_DIR/dist/lib/mlc4j"
 [[ -f "$DIST/output/arm64-v8a/libtvm4j_runtime_packed.so" ]] ||
