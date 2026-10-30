@@ -123,7 +123,7 @@ jobs:
           path = os.path.join(os.environ["MLC_LLM_SOURCE_DIR"], "android", "MLCChat", "mlc-package-config.json")
           with open(path, "w", encoding="utf-8") as f:
               json.dump(config, f, indent=2)
-              f.write("\\n")
+              f.write("\n")
           print(json.dumps(config, indent=2))
           PY
 
@@ -145,11 +145,11 @@ jobs:
           test -s "$APK"
           test -s "$RUNTIME"
           file "$APK" "$RUNTIME"
-          unzip -l "$APK" | grep -E 'lib/arm64-v8a/.*\\.so' | head -30
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/.*\.so' | head -30
           mkdir -p build-output
           cp "$APK" build-output/MLCChat-arm64-debug.apk
           cp mlc-source-commit.txt build-output/
-          printf 'Model repository: %s\\nModel ID: %s\\nMLC ref: %s\\n' "$MODEL_REPO" "$MODEL_ID" "$MLC_REF" > build-output/build-info.txt
+          printf 'Model repository: %s\nModel ID: %s\nMLC ref: %s\n' "$MODEL_REPO" "$MODEL_ID" "$MLC_REF" > build-output/build-info.txt
           cd mlc-llm/android/MLCChat
           tar -czf "${GITHUB_WORKSPACE}/build-output/mlc4j-arm64-runtime.tar.gz" dist/lib/mlc4j
 
