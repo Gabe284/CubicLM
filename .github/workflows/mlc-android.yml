@@ -135,7 +135,22 @@ jobs:
             python/mlc_llm/compiler_pass/low_batch_specialization.py \
             python/mlc_llm/compiler_pass/fuse_dequantize_transpose.py \
             python/mlc_llm/compiler_pass/lift_global_buffer_alloc.py
-          echo "PYTHONPATH=$MLC_LLM_SOURCE_DIR/python" >> "$GITHUB_ENV"
+          # Patch only the three affected compiler-pass modules in the installed
+          # nightly package; keep the wheel's remaining Python API/version intact.
+          python - <<'PY'
+          import importlib.util, shutil
+          from pathlib import Path
+
+          package_dir = Path(importlib.util.find_spec("mlc_llm").origin).parent
+          source_dir = Path("mlc-llm/python/mlc_llm/compiler_pass")
+          for name in (
+              "low_batch_specialization.py",
+              "fuse_dequantize_transpose.py",
+              "lift_global_buffer_alloc.py",
+          ):
+              shutil.copy2(source_dir / name, package_dir / "compiler_pass" / name)
+              print("Patched installed MLC compiler pass:", name)
+          PY
           # Apply the currently required Android/TVM compatibility fixes.
           python - <<'PY'
           from pathlib import Path
