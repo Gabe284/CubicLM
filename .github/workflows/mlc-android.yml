@@ -116,13 +116,49 @@ jobs:
           # The current nightly wheel imports psutil from its CLI/server module
           # but does not declare it as an install dependency.
           python -m pip install --upgrade psutil
-          python -c "import psutil, mlc_llm; print('psutil', psutil.__version__); print('MLC LLM import OK')"
+          # The 0.26.dev246 TVM wheel currently crashes in DLight with newer
+          # apache-tvm-ffi patch releases. Upstream Android issue #3552 verified
+          # the base 0.1.13 ABI as the working combination.
+          python -m pip install --force-reinstall --no-deps "apache-tvm-ffi==0.1.13"
+          python -c "import importlib.metadata as m, psutil, mlc_llm; print('psutil', psutil.__version__); print('apache-tvm-ffi', m.version('apache-tvm-ffi')); print('MLC LLM import OK')"
           python -m mlc_llm --help
 
       - name: Checkout MLC LLM source and submodules
         run: |
           git clone --recursive --depth 1 --branch "$MLC_REF" https://github.com/mlc-ai/mlc-llm.git "$MLC_LLM_SOURCE_DIR"
           test -f "$TVM_SOURCE_DIR/CMakeLists.txt"
+          # The current MLC compiler wheel and TVM submodule are not in sync
+          # with the typed-TIR-buffer compiler-pass migration. Restore the
+          # buffer_map-compatible versions documented in upstream issue #3552.
+          git -C "$MLC_LLM_SOURCE_DIR" fetch --no-tags origin 9fa644f5
+          git -C "$MLC_LLM_SOURCE_DIR" checkout 9fa644f5^ -- \
+            python/mlc_llm/compiler_pass/low_batch_specialization.py \
+            python/mlc_llm/compiler_pass/fuse_dequantize_transpose.py \
+            python/mlc_llm/compiler_pass/lift_global_buffer_alloc.py
+          echo "PYTHONPATH=$MLC_LLM_SOURCE_DIR/python" >> "$GITHUB_ENV"
+          # Apply the currently required Android/TVM compatibility fixes.
+          python - <<'PY'
+          from pathlib import Path
+
+          tvm_source = Path("mlc-llm/3rdparty/tvm")
+          logging = tvm_source / "cmake/modules/Logging.cmake"
+          if logging.exists():
+              text = logging.read_text(encoding="utf-8")
+              old = "target_compile_definitions(tvm_libinfo_objs PUBLIC TVM_LOG_CUSTOMIZE=1)"
+              new = 'if(TARGET tvm_libinfo_objs)\n  target_compile_definitions(tvm_libinfo_objs PUBLIC TVM_LOG_CUSTOMIZE=1)\nendif()'
+              if old in text:
+                  logging.write_text(text.replace(old, new), encoding="utf-8")
+                  print("Patched optional tvm_libinfo_objs target")
+          header = Path("mlc-llm/android/mlc4j/src/cpp/tvm_runtime.h")
+          if header.exists():
+              text = header.read_text(encoding="utf-8")
+              old = "TVM_FFI_THROW(InternalError) << m;"
+              new = 'throw ::tvm::ffi::Error("InternalError", message, ::TVMFFIBacktrace(file.c_str(), lineno, "", 0));'
+              if old in text:
+                  header.write_text(text.replace(old, new), encoding="utf-8")
+                  print("Patched TVM FFI fatal logging exception")
+          PY
+          python -c "import mlc_llm; print('MLC source package:', mlc_llm.__file__)"
           git -C "$MLC_LLM_SOURCE_DIR" rev-parse HEAD | tee mlc-source-commit.txt
 
       - name: Generate Android model package configuration
