@@ -69,6 +69,19 @@ jobs:
           # Do not enable setup-python's pip cache without a requirements/pyproject file.
           python-version: "3.11"
 
+      - name: Cache Python and MLC compiler downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/huggingface
+            ~/.cache/mlc_llm
+            ~/.cache/tvm
+          key: mlc-${{ runner.os }}-py311-${{ env.MLC_REF }}-${{ hashFiles('.github/workflows/mlc-android.yml') }}
+          restore-keys: |
+            mlc-${{ runner.os }}-py311-${{ env.MLC_REF }}-
+            mlc-${{ runner.os }}-py311-
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -100,6 +113,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install --pre -U -f https://mlc.ai/wheels mlc-llm-nightly-cpu mlc-ai-nightly-cpu
+          # The current nightly wheel imports psutil from its CLI/server module
+          # but does not declare it as an install dependency.
+          python -m pip install --upgrade psutil
+          python -c "import psutil, mlc_llm; print('psutil', psutil.__version__); print('MLC LLM import OK')"
           python -m mlc_llm --help
 
       - name: Checkout MLC LLM source and submodules
